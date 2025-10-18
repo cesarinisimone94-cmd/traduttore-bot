@@ -4,7 +4,7 @@
 
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
-import translate from "@vitalets/google-translate-api";
+import googleTranslate from "@vitalets/google-translate-api";
 import express from "express";
 
 // ================================
