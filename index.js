@@ -1,5 +1,5 @@
 // ================================
-// 🌍 Traduttore Chat Alliance — FIX finale no‑duplicazioni
+// 🌍 Traduttore Chat Alliance — FIX finale no‑duplicazioni + Anti‑duplicati Gateway
 // ================================
 
 import dotenv from "dotenv";
@@ -98,21 +98,34 @@ client.once("clientready", async () => {
 });
 
 // ----------------------
-// Gestione messaggi — FINAL FIX con ID‑tracking anti‑duplicati
+// Gestione messaggi — FINAL FIX con ID‑tracking + firma anti‑duplicati gateway
 // ----------------------
-const sentMessages = new Set();
+const sentMessages = new Set(); // messaggi inviati dal bot
+const recentMessages = new Map(); // firme per anti‑doppi eventi Gateway
+const DUP_WINDOW_MS = 1500; // finestra di 1.5s per eventi duplicati
 
 client.on("messageCreate", async (msg) => {
   try {
     if (!msg.guild) return;
 
-    // 🔒 Se è un messaggio che il bot ha appena inviato, bloccalo subito
+    // 🔒 Se è un messaggio generato dal bot (via ID), bloccalo
     if (sentMessages.has(msg.id)) return;
-
-    // Tradizionali anti‑loop
     if (msg.author?.id === client.user.id) return;
     if (msg.author?.bot) return;
     if (msg.webhookId) return;
+
+    // ⚡ Filtro anti‑doppi eventi Gateway (duplicati nei primi messaggi dopo inattività)
+    const signature = `${msg.author.id}_${msg.channel.id}_${msg.content}`.slice(0, 400);
+    const nowT = Date.now();
+
+    if (recentMessages.has(signature) && nowT - recentMessages.get(signature) < DUP_WINDOW_MS) {
+      return;
+    }
+
+    recentMessages.set(signature, nowT);
+    for (const [sig, ts] of recentMessages) {
+      if (nowT - ts > DUP_WINDOW_MS) recentMessages.delete(sig);
+    }
 
     // Evita embed senza testo
     if (!msg.content && msg.embeds.length > 0) return;
@@ -238,5 +251,3 @@ client.on("interactionCreate", async (i) => {
     return i.reply({ embeds: [emb], ephemeral: true });
   }
 });
-
-client.login(process.env.DISCORD_TOKEN);
