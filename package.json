@@ -1,16 +1,16 @@
 {
   "name": "traduttore-bot",
   "version": "1.0.0",
-  "description": "Bot Discord per traduzioni automatiche.",
   "main": "index.js",
+  "license": "MIT",
   "type": "module",
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "@vitalets/google-translate-api": "9.2.0"
+  },
   "scripts": {
     "start": "node index.js"
-  },
-"dependencies": {
-  "express": "^4.19.2",
-  "discord.js": "^14.15.0",
- "@vitalets/google-translate-api": "^11.0.0"
-  "dotenv": "^16.4.5"
   }
 }
