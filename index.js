@@ -108,29 +108,28 @@ client.on("messageCreate", async (msg) => {
   try {
     if (!msg.guild) return;
 
-    // 🔒 Se è un messaggio generato dal bot (via ID), bloccalo
+    // 🔒 evita auto‑loop e duplicazioni immediate
     if (sentMessages.has(msg.id)) return;
     if (msg.author?.id === client.user.id) return;
     if (msg.author?.bot) return;
     if (msg.webhookId) return;
 
-    // ⚡ Filtro anti‑doppi eventi Gateway (duplicati nei primi messaggi dopo inattività)
-    const signature = `${msg.author.id}_${msg.channel.id}_${msg.content}`.slice(0, 400);
+    // ✅ marca subito questo messageId come già processato
+    sentMessages.add(msg.id);
+    // Mantienilo 60 s per coprire eventuali ritardi gateway
+    setTimeout(() => sentMessages.delete(msg.id), 60000);
+
+    // ⚡ filtro anti‑doppi eventi basato su firma (autore+canale+contenuto)
+    const signature = `${msg.author.id}_${msg.channel.id}_${msg.content}`;
     const nowT = Date.now();
-
-    if (recentMessages.has(signature) && nowT - recentMessages.get(signature) < DUP_WINDOW_MS) {
-      return;
-    }
-
+    if (recentMessages.has(signature) && nowT - recentMessages.get(signature) < DUP_WINDOW_MS) return;
     recentMessages.set(signature, nowT);
-    for (const [sig, ts] of recentMessages) {
-      if (nowT - ts > DUP_WINDOW_MS) recentMessages.delete(sig);
-    }
+    for (const [sig, ts] of recentMessages) if (nowT - ts > DUP_WINDOW_MS) recentMessages.delete(sig);
 
-    // Evita embed senza testo
+    // Evita embed puri
     if (!msg.content && msg.embeds.length > 0) return;
 
-    // Blocca se contiene tag T‑BOT
+    // Blocca messaggi del bot
     const joined = `${msg.content || ""} ${
       msg.embeds[0]?.description || ""
     } ${msg.embeds[0]?.footer?.text || ""}`.toLowerCase();
@@ -141,45 +140,35 @@ client.on("messageCreate", async (msg) => {
 
     const guild = msg.guild;
     const cname = msg.channel.name.toLowerCase();
-    const globalCh = guild.channels.cache.find(
-      (c) => c.name.toLowerCase() === globalName
-    );
+    const globalCh = guild.channels.cache.find((c) => c.name.toLowerCase() === globalName);
     const src = langs[cname];
 
-    // 🌍 1️⃣ Messaggio dal canale GLOBALE
+    // 🌍 1️⃣ messaggio nel globale
     if (cname === globalName.toLowerCase()) {
       for (const [destName, dest] of Object.entries(langs)) {
-        const destCh = guild.channels.cache.find(
-          (c) => c.name.toLowerCase() === destName
-        );
+        const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
         if (!destCh) continue;
         const t = await translateText(content, "auto", dest.code);
         if (!t) continue;
 
         const emb = new EmbedBuilder()
           .setColor(dest.color)
-          .setAuthor({
-            name: msg.author.username,
-            iconURL: msg.author.displayAvatarURL(),
-          })
+          .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL() })
           .setDescription(`💬 ${t}`)
-          .setFooter({
-            text: `🌍 Da Globale → ${dest.flag} ${dest.code.toUpperCase()} |T-BOT|`,
-          });
+          .setFooter({ text: `🌍 Da Globale → ${dest.flag} ${dest.code.toUpperCase()} |T-BOT|` });
 
-        // ⬇️ invio + salvataggio ID
         const sent = await destCh.send({ embeds: [emb] });
         sentMessages.add(sent.id);
-        setTimeout(() => sentMessages.delete(sent.id), 5000);
+        setTimeout(() => sentMessages.delete(sent.id), 60000);
       }
       return;
     }
 
-    // 🗣️ 2️⃣ Messaggio da un canale lingua
+    // 🗣️ 2️⃣ messaggio da canale lingua
     if (!src) return;
     if (cooldown(msg)) return;
 
-    // → invio nel globale
+    // → invia nel globale
     if (globalCh) {
       const emb = new EmbedBuilder()
         .setColor(src.color)
@@ -194,15 +183,13 @@ client.on("messageCreate", async (msg) => {
 
       const sent = await globalCh.send({ embeds: [emb] });
       sentMessages.add(sent.id);
-      setTimeout(() => sentMessages.delete(sent.id), 5000);
+      setTimeout(() => sentMessages.delete(sent.id), 60000);
     }
 
-    // → traduzioni negli altri canali lingua
+    // → traduzioni negli altri
     for (const [destName, dest] of Object.entries(langs)) {
       if (destName === cname) continue;
-      const destCh = guild.channels.cache.find(
-        (c) => c.name.toLowerCase() === destName
-      );
+      const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
       if (!destCh) continue;
 
       const t = await translateText(content, src.code, dest.code);
@@ -210,10 +197,7 @@ client.on("messageCreate", async (msg) => {
 
       const emb = new EmbedBuilder()
         .setColor(dest.color)
-        .setAuthor({
-          name: msg.author.username,
-          iconURL: msg.author.displayAvatarURL(),
-        })
+        .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL() })
         .setDescription(`💬 ${t}`)
         .setFooter({
           text: `Tradotto da ${src.flag} ${src.code.toUpperCase()} → ${dest.flag} ${dest.code.toUpperCase()} |T-BOT|`,
@@ -221,7 +205,7 @@ client.on("messageCreate", async (msg) => {
 
       const sent = await destCh.send({ embeds: [emb] });
       sentMessages.add(sent.id);
-      setTimeout(() => sentMessages.delete(sent.id), 5000);
+      setTimeout(() => sentMessages.delete(sent.id), 60000);
     }
   } catch (err) {
     console.error(`${c.red}${tag()} 💥 Errore:${c.reset}`, err);
