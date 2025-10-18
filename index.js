@@ -6,15 +6,6 @@ import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
 import express from "express";
 
-// import universale della libreria di traduzione (funziona con ogni versione)
-import * as googleTranslateApi from "@vitalets/google-translate-api";
-
-// funzione helper che restituisce la vera funzione di traduzione
-const googleTranslate =
-  googleTranslateApi.default?.default ||
-  googleTranslateApi.default ||
-  googleTranslateApi;
-
 // ================================
 // 🌐  Server HTTP per Render
 // ================================
@@ -25,7 +16,6 @@ app.get("/", (req, res) => {
 });
 
 const port = process.env.PORT || 10000;
-
 app.listen(port, "0.0.0.0", () => {
   console.log(`🌐 Server HTTP attivo su 0.0.0.0:${port}`);
 });
@@ -56,19 +46,27 @@ const channelLanguages = {
 
 const globalChannelName = "alliance-chat-globale";
 
-client.once("clientReady", () => {
+client.once("ready", () => {
   console.log(`✅ Traduttore ${client.user.tag} è online con messaggi embed.`);
 });
 
 // ================================
-// 🔧 funzione di traduzione compatibile
+// 🔧  Funzione di traduzione senza pacchetto esterno
 // ================================
-async function translateText(text, options) {
+async function translateText(text, { from = "auto", to = "en" }) {
   try {
-    const res = await googleTranslate(text, options);
-    return res?.text;
-  } catch (error) {
-    console.error("Errore API di traduzione:", error.message);
+    // endpoint JSON pubblico del translate di Google
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(
+      text
+    )}`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+    // estrai il testo tradotto dal JSON
+    const translated = data?.[0]?.map((el) => el[0]).join("") || null;
+    return translated;
+  } catch (err) {
+    console.error("❌ Errore API di traduzione (fetch):", err.message);
     return null;
   }
 }
