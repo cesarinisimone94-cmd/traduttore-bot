@@ -144,7 +144,7 @@ client.on("messageCreate", async (message) => {
   const globalChannel = message.guild.channels.cache.find(
     (ch) => ch.name.toLowerCase() === globalChannelName
   );
-  if (globalChannel) {
+  if (globalChannel && channelName !== globalChannelName) {
     const embedOriginal = new EmbedBuilder()
       .setColor(0x95a5a6)
       .setAuthor({
