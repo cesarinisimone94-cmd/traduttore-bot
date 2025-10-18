@@ -4,11 +4,11 @@
 
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
-// ✅ Import corretto per le versioni recenti (v11+)
-import translatePkg from "@vitalets/google-translate-api";
-const googleTranslateApi = translatePkg.default || translatePkg;
+import translateModule from "@vitalets/google-translate-api";   // 👈 importa sempre l’oggetto intero
 import express from "express";
 
+// ✅ compatibilità universale per tutte le versioni del pacchetto
+const googleTranslateApi = translateModule.default || translateModule;
 // ================================
 // 🌐  Server HTTP per Render
 // ================================
