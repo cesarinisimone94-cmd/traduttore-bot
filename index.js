@@ -98,26 +98,30 @@ client.once("clientready", async () => {
 });
 
 // ----------------------
-// Gestione messaggi — versione definitiva anti‑duplicati 2025‑10‑18
+// Gestione messaggi — FINAL FIX con ID‑tracking anti‑duplicati
 // ----------------------
+const sentMessages = new Set();
+
 client.on("messageCreate", async (msg) => {
   try {
-    // 🧱 BLOCCO ANTI‑LOOP
     if (!msg.guild) return;
-    // scarta qualsiasi messaggio del bot in modo certo
+
+    // 🔒 Se è un messaggio che il bot ha appena inviato, bloccalo subito
+    if (sentMessages.has(msg.id)) return;
+
+    // Tradizionali anti‑loop
     if (msg.author?.id === client.user.id) return;
     if (msg.author?.bot) return;
     if (msg.webhookId) return;
 
-    // se è un messaggio senza testo ma con embed → ignoralo
+    // Evita embed senza testo
     if (!msg.content && msg.embeds.length > 0) return;
 
-    // blocca eventuali testi con tag T‑BOT
-    const textJoined = `${msg.content || ""} ${
+    // Blocca se contiene tag T‑BOT
+    const joined = `${msg.content || ""} ${
       msg.embeds[0]?.description || ""
     } ${msg.embeds[0]?.footer?.text || ""}`.toLowerCase();
-
-    if (textJoined.includes("|t-bot|")) return;
+    if (joined.includes("|t-bot|")) return;
 
     const content = msg.content?.trim();
     if (!content) return;
@@ -131,7 +135,6 @@ client.on("messageCreate", async (msg) => {
 
     // 🌍 1️⃣ Messaggio dal canale GLOBALE
     if (cname === globalName.toLowerCase()) {
-      console.log(`[Global ➜ traduzione] ${msg.author.username}`);
       for (const [destName, dest] of Object.entries(langs)) {
         const destCh = guild.channels.cache.find(
           (c) => c.name.toLowerCase() === destName
@@ -150,18 +153,22 @@ client.on("messageCreate", async (msg) => {
           .setFooter({
             text: `🌍 Da Globale → ${dest.flag} ${dest.code.toUpperCase()} |T-BOT|`,
           });
-        await destCh.send({ embeds: [emb] });
+
+        // ⬇️ invio + salvataggio ID
+        const sent = await destCh.send({ embeds: [emb] });
+        sentMessages.add(sent.id);
+        setTimeout(() => sentMessages.delete(sent.id), 5000);
       }
       return;
     }
 
-    // 🗣️ 2️⃣ Messaggio da canale lingua
-    if (!src) return; // canale non mappato
+    // 🗣️ 2️⃣ Messaggio da un canale lingua
+    if (!src) return;
     if (cooldown(msg)) return;
 
-    // Copia nel canale globale solo come messaggio originale
+    // → invio nel globale
     if (globalCh) {
-      const embOrig = new EmbedBuilder()
+      const emb = new EmbedBuilder()
         .setColor(src.color)
         .setAuthor({
           name: `${src.flag} [${src.code.toUpperCase()}] ${msg.author.username}`,
@@ -169,20 +176,25 @@ client.on("messageCreate", async (msg) => {
         })
         .setDescription(`💬 ${content}`)
         .setFooter({
-          text: `🕒 ${now()} | ${src.flag} Originale da ${src.name} |T-BOT|`,
+          text: `🕒 ${now()} | ${src.flag} Originale ${src.name} |T-BOT|`,
         });
-      await globalCh.send({ embeds: [embOrig] });
+
+      const sent = await globalCh.send({ embeds: [emb] });
+      sentMessages.add(sent.id);
+      setTimeout(() => sentMessages.delete(sent.id), 5000);
     }
 
-    // Ora traduzioni negli ALTRI canali lingua
+    // → traduzioni negli altri canali lingua
     for (const [destName, dest] of Object.entries(langs)) {
       if (destName === cname) continue;
       const destCh = guild.channels.cache.find(
         (c) => c.name.toLowerCase() === destName
       );
       if (!destCh) continue;
+
       const t = await translateText(content, src.code, dest.code);
       if (!t) continue;
+
       const emb = new EmbedBuilder()
         .setColor(dest.color)
         .setAuthor({
@@ -193,7 +205,10 @@ client.on("messageCreate", async (msg) => {
         .setFooter({
           text: `Tradotto da ${src.flag} ${src.code.toUpperCase()} → ${dest.flag} ${dest.code.toUpperCase()} |T-BOT|`,
         });
-      await destCh.send({ embeds: [emb] });
+
+      const sent = await destCh.send({ embeds: [emb] });
+      sentMessages.add(sent.id);
+      setTimeout(() => sentMessages.delete(sent.id), 5000);
     }
   } catch (err) {
     console.error(`${c.red}${tag()} 💥 Errore:${c.reset}`, err);
