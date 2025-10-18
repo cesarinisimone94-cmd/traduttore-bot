@@ -10,7 +10,7 @@
 "dependencies": {
   "express": "^4.19.2",
   "discord.js": "^14.15.0",
-  "@vitalets/google-translate-api": "^9.2.0",
+ "@vitalets/google-translate-api": "^11.0.0"
   "dotenv": "^16.4.5"
   }
 }
