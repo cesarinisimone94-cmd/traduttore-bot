@@ -4,9 +4,12 @@
 
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
-import { translate } from "@vitalets/google-translate-api";
+import googleTranslate from "@vitalets/google-translate-api";
 import express from "express";
 
+// ================================
+// 🌐  Server HTTP per Render
+// ================================
 const app = express();
 
 app.get("/", (req, res) => {
@@ -23,6 +26,8 @@ app.listen(port, "0.0.0.0", () => {
 // ================================
 // ⚙️  Configurazione Discord
 // ================================
+dotenv.config();
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -66,8 +71,9 @@ client.on("messageCreate", async (message) => {
       if (!targetChannel) continue;
 
       try {
-        const result = await translate(text, { to: targetInfo.code });
-        const tradotto = result.translation ?? result.text ?? "⚠️ Nessuna traduzione trovata.";
+        // ✅ Usa googleTranslate (nuova libreria)
+        const result = await googleTranslate(text, { to: targetInfo.code });
+        const tradotto = result.text ?? "⚠️ Nessuna traduzione trovata.";
 
         const embed = new EmbedBuilder()
           .setColor(targetInfo.color)
@@ -102,11 +108,12 @@ client.on("messageCreate", async (message) => {
     if (!targetChannel) continue;
 
     try {
-      const result = await translate(text, {
+      // ✅ Usa googleTranslate con specifica lingua di partenza
+      const result = await googleTranslate(text, {
         from: sourceInfo.code,
         to: targetInfo.code,
       });
-      const tradotto = result.translation ?? result.text ?? "⚠️ Nessuna traduzione trovata.";
+      const tradotto = result.text ?? "⚠️ Nessuna traduzione trovata.";
 
       const embed = new EmbedBuilder()
         .setColor(targetInfo.color)
