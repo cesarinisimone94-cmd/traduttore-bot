@@ -1,5 +1,5 @@
 // ================================
-// 🌍 Traduttore Chat Alliance — versione finale 2025-10-18
+// 🌍 Traduttore Chat Alliance — versione "anti‑duplicati" 2025‑10‑18
 // ================================
 
 import dotenv from "dotenv";
@@ -7,44 +7,39 @@ import { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } from "discord.j
 import express from "express";
 
 dotenv.config();
-const DEBUG = process.env.DEBUG_LOG === "true";
-
 const c = {
   reset: "\x1b[0m",
   red: "\x1b[31m",
   green: "\x1b[32m",
   blue: "\x1b[34m",
-  yellow: "\x1b[33m",
 };
 
-// Utilità tempo
+// 🕒 helper
 function time() {
-  const d = new Date();
-  return d.toLocaleTimeString("it-IT", { hour12: false });
+  return new Date().toLocaleTimeString("it-IT", { hour12: false });
 }
 function dateShort() {
-  const d = new Date();
-  return d.toLocaleDateString("it-IT");
+  return new Date().toLocaleDateString("it-IT");
 }
 function timeTag() {
   return `[${dateShort()} ${time()}]`;
 }
 
-// 🔁 Keep‑alive per Render
+// 🌐 keep‑alive
 const app = express();
 app.get("/", (_, res) => res.send("✅ Traduttore attivo"));
 app.listen(process.env.PORT || 10000, () =>
   console.log(`${c.green}${timeTag()} 🌐 Server attivo${c.reset}`)
 );
 
-// 🤖 Client Discord
+// 🤖 client Discord
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
-if (globalThis.tradRunning) process.exit(0);
-globalThis.tradRunning = true;
+if (globalThis.running) process.exit(0);
+globalThis.running = true;
 
-// 🔤 Canali & lingue
+// Lingue
 const channelLanguages = {
   "alliance-chat-ita": { code: "it", flag: "🇮🇹", name: "Italiano", color: 0x3498db },
   "alliance-chat-en": { code: "en", flag: "🇬🇧", name: "Inglese", color: 0x2ecc71 },
@@ -56,183 +51,146 @@ const channelLanguages = {
 };
 const globalChannelName = "alliance-chat-globale";
 
-// 🌐 Traduzioni via Google Free API
+// Traduzione
 async function translateText(text, from, to) {
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(
-      text
-    )}`;
-    const res = await fetch(url);
+    const res = await fetch(
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(
+        text
+      )}`
+    );
     const data = await res.json();
-    const translated = (data[0] || [])
+    const out = (data[0] || [])
       .map((v) => (Array.isArray(v) ? v[0] : ""))
       .join(" ")
       .replace(/\s+/g, " ")
       .trim();
-    return translated || text;
-  } catch (err) {
-    console.error(`${c.red}${timeTag()} ❌ Errore traduzione:${c.reset}`, err.message);
+    return out || text;
+  } catch {
     return text;
   }
 }
 
-// ⏱️ Cooldown
+// Cooldown
 const cooldowns = new Map();
-const DEFAULT_COOLDOWN = Number(process.env.COOLDOWN_MS) || 2000;
-const REMOVE_REACTION_MS = Number(process.env.REMOVE_REACTION_MS) || 5000;
-
-function getCooldownMs(lang) {
-  return Number(process.env[`COOLDOWN_${lang.toUpperCase()}_MS`]) || DEFAULT_COOLDOWN;
-}
-async function handleRateLimit(msg, lang) {
-  const cd = getCooldownMs(lang);
+const DEFAULT_COOLDOWN = 2000;
+async function handleCooldown(msg, lang) {
   const now = Date.now();
   const key = `${msg.author.id}_${msg.channel.id}`;
   const last = cooldowns.get(key) || 0;
-  if (now - last < cd) {
-    try {
-      await msg.react("🕒");
-      setTimeout(() => msg.reactions.cache.get("🕒")?.remove().catch(() => {}), REMOVE_REACTION_MS);
-    } catch {}
-    return true;
-  }
+  if (now - last < DEFAULT_COOLDOWN) return true;
   cooldowns.set(key, now);
   return false;
 }
 
-// 🚀 READY
+// Ready
 client.once("clientready", async () => {
   console.log(`${c.green}${timeTag()} ✅ Bot online come ${client.user.tag}${c.reset}`);
-  try {
-    const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
-    await rest.put(Routes.applicationCommands(client.user.id), {
-      body: [
-        { name: "ping", description: "Mostra la latenza" },
-        { name: "status", description: "Mostra lo stato del traduttore" },
-      ],
-    });
-  } catch (e) {
-    console.error(`${c.red}${timeTag()} ❌ Comandi:${c.reset}`, e.message);
-  }
+  const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+  await rest.put(Routes.applicationCommands(client.user.id), {
+    body: [
+      { name: "ping", description: "Ping del bot" },
+      { name: "status", description: "Mostra lo stato del traduttore" },
+    ],
+  });
 });
 
-// 💬 Gestione messaggi
+// 🔰 Messaggi
 client.on("messageCreate", async (msg) => {
   try {
-    if (!msg.guild || msg.author.bot || msg.webhookId) return;
-    const text = msg.content?.trim();
-    if (!text) return;
+    if (!msg.guild) return;
+    if (msg.author.bot) return; // blocca ogni bot (incluso sé stesso)
+    const content = msg.content?.trim();
+    if (!content) return;
+
+    // blocca eventuali embed o msg già tradotti
+    const firstEmbed = msg.embeds?.[0];
+    const footer = firstEmbed?.footer?.text?.toLowerCase?.() || "";
+    if (footer.includes("|t-bot|")) return;
 
     const cname = msg.channel.name.toLowerCase();
     const guild = msg.guild;
     const globalChannel = guild.channels.cache.find(
       (c) => c.name.toLowerCase() === globalChannelName
     );
-    const srcInfo = channelLanguages[cname];
 
-    // 🔹 Caso A) messaggio dal canale GLOBALE
+    // 🔹 Caso 1: scritto nel canale GLOBALE
     if (cname === globalChannelName.toLowerCase()) {
-      // Traduci per ogni canale lingua
+      console.log(`${c.green}${timeTag()} 🌍 Messaggio dal GLOBAL tradotto nei canali lingua${c.reset}`);
       for (const [destName, destInfo] of Object.entries(channelLanguages)) {
         const destChannel = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
         if (!destChannel) continue;
-        const translated = await translateText(text, "auto", destInfo.code);
+        const translated = await translateText(content, "auto", destInfo.code);
         if (!translated) continue;
 
         const emb = new EmbedBuilder()
           .setColor(destInfo.color)
-          .setAuthor({
-            name: msg.author.username,
-            iconURL: msg.author.displayAvatarURL(),
-          })
+          .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL() })
           .setDescription(`💬 ${translated}`)
           .setFooter({
-            text: `🌍 Tradotto da Globale → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|`,
+            text: `🌍 Da Globale → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|`,
           });
-
         await destChannel.send({ embeds: [emb] });
       }
-      return; // Non tradurre ulteriormente / non copiare in globale
+      return;
     }
 
-    // 🔹 Caso B) messaggio da canale lingua
-    if (!srcInfo) return;
+    // 🔹 Caso 2: scritto in un canale linguistico
+    const srcLang = channelLanguages[cname];
+    if (!srcLang) return;
 
-    const flooded = await handleRateLimit(msg, srcInfo.code);
-    if (flooded) return;
+    if (await handleCooldown(msg, srcLang.code)) return;
 
-    // Copia nel canale GLOBALE (solo messaggio originale)
+    // Copia nel GLOBALE (solo originale)
     if (globalChannel) {
       const embOrig = new EmbedBuilder()
-        .setColor(srcInfo.color)
+        .setColor(srcLang.color)
         .setAuthor({
-          name: `${srcInfo.flag} [${srcInfo.code.toUpperCase()} – ${srcInfo.name}] ${msg.author.username}`,
+          name: `${srcLang.flag} [${srcLang.code.toUpperCase()}] ${msg.author.username}`,
           iconURL: msg.author.displayAvatarURL(),
         })
-        .setDescription(`💬 ${text}`)
+        .setDescription(`💬 ${content}`)
         .setFooter({
-          text: `🕒 ${dateShort()} – ${time()} | ${srcInfo.flag} Messaggio originale da ${cname} |T-BOT|`,
+          text: `🕒 ${dateShort()} – ${time()} | ${srcLang.flag} Da ${cname} |T-BOT|`,
         });
       await globalChannel.send({ embeds: [embOrig] });
     }
 
-    // Traduzioni nei canali *diversi* dal sorgente
+    // Traduzioni negli altri canali
     for (const [destName, destInfo] of Object.entries(channelLanguages)) {
-      if (destName === cname) continue;
+      if (destName === cname) continue; // salta se stesso
       const destChannel = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
       if (!destChannel) continue;
-
-      const translated = await translateText(text, srcInfo.code, destInfo.code);
+      const translated = await translateText(content, srcLang.code, destInfo.code);
       if (!translated) continue;
 
       const emb = new EmbedBuilder()
         .setColor(destInfo.color)
-        .setAuthor({
-          name: msg.author.username,
-          iconURL: msg.author.displayAvatarURL(),
-        })
+        .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL() })
         .setDescription(`💬 ${translated}`)
         .setFooter({
-          text: `Tradotto da ${srcInfo.flag} ${srcInfo.code.toUpperCase()} → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|`,
+          text: `Tradotto da ${srcLang.flag} ${srcLang.code.toUpperCase()} → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|`,
         });
-
       await destChannel.send({ embeds: [emb] });
     }
-  } catch (err) {
-    console.error(`${c.red}${timeTag()} 💥 Errore messaggio:${c.reset}`, err);
+  } catch (e) {
+    console.error(`${c.red}${timeTag()} 💥 Errore:${c.reset}`, e);
   }
 });
 
-// ⚙️ Comandi
+// Slash commands
 client.on("interactionCreate", async (i) => {
   if (!i.isChatInputCommand()) return;
-
-  if (i.commandName === "ping") {
-    const latency = Date.now() - i.createdTimestamp;
-    return i.reply({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(0x2ecc71)
-          .setDescription(`🏓 Pong! Latenza: **${latency} ms**`)
-          .setTimestamp(),
-      ],
-      ephemeral: true,
-    });
-  }
-
+  if (i.commandName === "ping")
+    return i.reply({ content: `🏓 Pong! ${Date.now() - i.createdTimestamp} ms`, ephemeral: true });
   if (i.commandName === "status") {
-    const list = Object.entries(channelLanguages)
-      .map(
-        ([ch, l]) =>
-          `${l.flag} **${l.name}** → #${ch} (${l.code.toUpperCase()})`
-      )
+    const langs = Object.entries(channelLanguages)
+      .map(([k, v]) => `${v.flag} #${k} (${v.code.toUpperCase()})`)
       .join("\n");
     const emb = new EmbedBuilder()
-      .setColor(0x3498db)
-      .setTitle("🤖 Stato Traduttore")
-      .setDescription(
-        `🟢 Online come **${client.user.tag}**\n📡 Chat glob: #${globalChannelName}\n\nLingue supportate:\n${list}`
-      )
+      .setColor(0x00aaff)
+      .setTitle("📊 Stato Traduttore")
+      .setDescription(`Canali supportati:\n${langs}\n\nGlobale: #${globalChannelName}`)
       .setTimestamp();
     return i.reply({ embeds: [emb], ephemeral: true });
   }
