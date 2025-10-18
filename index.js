@@ -1,5 +1,5 @@
 // ================================
-// 🌍 Traduttore Chat Alliance — con fix globale + no duplicati 🇵🇱
+// 🌍 Traduttore Chat Alliance — versione definitiva (globale + no duplicati 🇫🇷🇸🇦)
 // ================================
 
 import dotenv from "dotenv";
@@ -31,7 +31,7 @@ function timeTag() {
   return `[${dateShort()} ${time()}]`;
 }
 
-// 🌐 Server HTTP keep-alive
+// 🌐 Keep‑alive server (Render/Replit)
 const app = express();
 app.get("/", (_, res) => res.send("✅ Traduttore attivo"));
 const port = process.env.PORT || 10000;
@@ -61,7 +61,7 @@ const channelLanguages = {
 };
 const globalChannelName = "alliance-chat-globale";
 
-// 🧠 Traduzione con Google (free API)
+// 🧠 Funzione di traduzione (Google free API)
 async function translateText(text, from, to) {
   try {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(
@@ -81,7 +81,7 @@ async function translateText(text, from, to) {
   }
 }
 
-// 🕒 Cooldown per lingua
+// 🕒 Gestione cooldown
 const cooldowns = new Map();
 const DEFAULT_COOLDOWN = Number(process.env.COOLDOWN_MS) || 2000;
 const REMOVE_REACTION_MS = Number(process.env.REMOVE_REACTION_MS) || 5000;
@@ -127,15 +127,14 @@ client.once("clientready", async () => {
   }
 });
 
-// 💬 Gestione messaggi — con fix globale + no duplicati
+// 💬 Gestione messaggi — definitiva
 client.on("messageCreate", async (msg) => {
   try {
     if (!msg.guild || msg.author.bot || msg.author.id === client.user.id) return;
-
     const text = msg.content?.trim();
     if (!text) return;
 
-    // 🛡️ Evita doppie traduzioni dei messaggi del bot
+    // 🛡️ Evita di ritradurre embed o webhook del bot
     const firstEmbed = msg.embeds?.[0];
     const footerText = firstEmbed?.footer?.text?.toLowerCase?.() || "";
     if (
@@ -151,8 +150,10 @@ client.on("messageCreate", async (msg) => {
     const guild = msg.guild;
     const cname = msg.channel.name.toLowerCase();
 
-    // 🔹 Identifica la lingua sorgente
-    let src = channelLanguages[cname];
+    // 🔹 Lingua sorgente: ricerca flessibile
+    let src = Object.entries(channelLanguages).find(([key]) => cname.includes(key))?.[1];
+
+    // Se siamo nel canale GLOBALE → lingua "auto"
     if (!src && cname === globalChannelName.toLowerCase()) {
       src = { code: "auto", flag: "🌍", name: "Globale", color: 0x95a5a6 };
     }
@@ -169,7 +170,7 @@ client.on("messageCreate", async (msg) => {
     if (DEBUG)
       console.log(`${c.blue}${timeTag()} 📨 ${msg.author.username} → #${cname}:${c.reset} ${text}`);
 
-    // 1️⃣ Copia messaggio originale nel canale globale (se non proviene già da lì)
+    // 1️⃣ Copia messaggio originale nel canale globale (solo se non proviene già da lì)
     if (globalChannel && cname !== globalChannelName.toLowerCase()) {
       const embed = new EmbedBuilder()
         .setColor(src.color)
@@ -184,9 +185,10 @@ client.on("messageCreate", async (msg) => {
       await globalChannel.send({ embeds: [embed] });
     }
 
-    // 2️⃣ Traduzioni in ogni canale
+    // 2️⃣ Traduzioni — senza duplicati
     for (const [destName, destInfo] of Object.entries(channelLanguages)) {
-      if (destName === cname && src.code !== "auto") continue;
+      if (destName === cname) continue; // evita di tradurre nel canale d'origine
+
       const destChannel = guild.channels.cache.find(
         (c) => c.name.toLowerCase() === destName
       );
@@ -209,7 +211,7 @@ client.on("messageCreate", async (msg) => {
       await destChannel.send({ embeds: [emb] });
     }
 
-    // 🔹 Se il messaggio nasce dal canale globale → replica nel globale per visibilità
+    // 🔹 Se messaggio viene dal canale globale → mostra embed locale
     if (cname === globalChannelName.toLowerCase() && globalChannel) {
       const embGlobal = new EmbedBuilder()
         .setColor(src.color)
