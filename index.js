@@ -7,18 +7,18 @@ import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
 import translate from "@vitalets/google-translate-api";
 import express from "express";
 
-dotenv.config({ quiet: true });
-
-// 🔹 Server HTTP per evitare sleep su Render
 const app = express();
 
-// rotta di controllo: Render userà questa per verificare la porta
-app.get("/", (req, res) => res.send("✅ Traduttore Bot attivo!"));
+// endpoint di test
+app.get("/", (req, res) => {
+  res.send("✅ Traduttore Bot attivo e in ascolto!");
+});
 
-// usa la porta indicata da Render, e l'host 0.0.0.0
+// Render imposta la porta nella variabile d’ambiente PORT
 const port = process.env.PORT || 10000;
+
 app.listen(port, "0.0.0.0", () => {
-  console.log(`🌐 Server HTTP attivo sulla porta ${port}`);
+  console.log(`🌐 Server HTTP attivo su 0.0.0.0:${port}`);
 });
 
 // ================================
