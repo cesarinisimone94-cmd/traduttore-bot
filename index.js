@@ -1,9 +1,22 @@
+// ================================
+// 🌍  Bot Traduttore Multicanale
+// ================================
+
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
 import translate from "@vitalets/google-translate-api";
+import express from "express";
 
 dotenv.config({ quiet: true });
 
+// 🔹 Server HTTP per evitare sleep su Render
+const app = express();
+app.get("/", (req, res) => res.send("✅ Traduttore Bot attivo!"));
+app.listen(10000, () => console.log("🌐 Server di ping attivo sulla porta 10000"));
+
+// ================================
+// ⚙️  Configurazione Discord
+// ================================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -25,17 +38,20 @@ const channelLanguages = {
 
 const globalChannelName = "alliance-chat-globale";
 
-client.once("clientReady", () => {
+client.once("ready", () => {
   console.log(`✅ Traduttore ${client.user.tag} è online con messaggi embed.`);
 });
 
+// ================================
+// 🗣️  Gestione dei messaggi
+// ================================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   const channelName = message.channel.name.toLowerCase();
   const text = message.content.trim();
   if (!text) return;
 
-  // 🔹 Caso 1: canale globale → traduci per tutti (ma non nel globale)
+  // 🔹 Caso 1: canale globale → traduci verso tutti gli altri
   if (channelName === globalChannelName) {
     for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
       const targetChannel = message.guild.channels.cache.find(
@@ -45,14 +61,15 @@ client.on("messageCreate", async (message) => {
 
       try {
         const result = await translate(text, { to: targetInfo.code });
+        const tradotto = result.translation ?? result.text ?? "⚠️ Nessuna traduzione trovata.";
 
         const embed = new EmbedBuilder()
           .setColor(targetInfo.color)
           .setAuthor({
-            name: `${message.author.username}`,
+            name: message.author.username,
             iconURL: message.author.displayAvatarURL(),
           })
-          .setDescription(`💬 ${result.text}`)
+          .setDescription(`💬 ${tradotto}`)
           .setFooter({
             text: `Tradotto da 🌍 (globale) → ${targetInfo.flag} ${targetInfo.code.toUpperCase()}`,
           });
@@ -65,7 +82,7 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // 🔹 Caso 2: messaggio in canale di lingua specifica
+  // 🔹 Caso 2: messaggio in un canale di lingua specifica
   const sourceInfo = channelLanguages[channelName];
   if (!sourceInfo) return;
 
@@ -83,15 +100,15 @@ client.on("messageCreate", async (message) => {
         from: sourceInfo.code,
         to: targetInfo.code,
       });
+      const tradotto = result.translation ?? result.text ?? "⚠️ Nessuna traduzione trovata.";
 
-      // costruzione embed con grafica tipo messaggio utente
       const embed = new EmbedBuilder()
         .setColor(targetInfo.color)
         .setAuthor({
-          name: `${message.author.username}`,
+          name: message.author.username,
           iconURL: message.author.displayAvatarURL(),
         })
-        .setDescription(`💬 ${result.text}`)
+        .setDescription(`💬 ${tradotto}`)
         .setFooter({
           text: `Tradotto da ${sourceInfo.flag} ${sourceInfo.code.toUpperCase()} → ${targetInfo.flag} ${targetInfo.code.toUpperCase()}`,
         });
@@ -102,7 +119,7 @@ client.on("messageCreate", async (message) => {
     }
   }
 
-  // 🔹 Invio testo originale nel canale globale (nessuna traduzione)
+  // 🔹 Invia il testo originale nel canale globale (senza traduzione)
   const globalChannel = message.guild.channels.cache.find(
     (ch) => ch.name.toLowerCase() === globalChannelName
   );
@@ -110,7 +127,7 @@ client.on("messageCreate", async (message) => {
     const embedOriginal = new EmbedBuilder()
       .setColor(0x95a5a6)
       .setAuthor({
-        name: `${message.author.username}`,
+        name: message.author.username,
         iconURL: message.author.displayAvatarURL(),
       })
       .setDescription(`💬 ${text}`)
@@ -122,4 +139,7 @@ client.on("messageCreate", async (message) => {
   }
 });
 
+// ================================
+// 🔑  Login
+// ================================
 client.login(process.env.DISCORD_TOKEN);
