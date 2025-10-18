@@ -98,46 +98,67 @@ client.once("clientready", async () => {
 });
 
 // ----------------------
-// Gestione messaggi
+// Gestione messaggi (versione 100% no‑duplicati)
 // ----------------------
 client.on("messageCreate", async (msg) => {
   try {
-    // 🧱 Blocchi di sicurezza anti‑loop
+    // 🚫 Blocchi di sicurezza anti‑loop e messaggi non testuali
     if (!msg.guild) return;
     if (msg.author.bot) return;
     if (msg.webhookId) return;
     if (msg.author.id === client.user.id) return;
+
+    // Se il messaggio NON ha testo e contiene embed, ignoralo
+    if (!msg.content && msg.embeds.length > 0) return;
+
+    // Se nel messaggio compare la marcatura del bot, ignoralo
+    const joined = `${msg.content || ""} ${
+      msg.embeds[0]?.description || ""
+    } ${msg.embeds[0]?.footer?.text || ""}`.toLowerCase();
+    if (joined.includes("|t-bot|")) return;
 
     const content = msg.content?.trim();
     if (!content) return;
 
     const guild = msg.guild;
     const cname = msg.channel.name.toLowerCase();
-    const globalCh = guild.channels.cache.find((c) => c.name.toLowerCase() === globalName);
+    const globalCh = guild.channels.cache.find(
+      (c) => c.name.toLowerCase() === globalName
+    );
     const src = langs[cname];
 
-    // 📘 Caso 1: scritto nel GLOBALE
+    // ✳️ Caso 1 – Messaggio dal canale GLOBALE
     if (cname === globalName.toLowerCase()) {
       for (const [destName, destInfo] of Object.entries(langs)) {
-        const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
+        const destCh = guild.channels.cache.find(
+          (c) => c.name.toLowerCase() === destName
+        );
         if (!destCh) continue;
-        const translated = await translateText(content, "auto", destInfo.code);
-        if (!translated) continue;
+        const t = await translateText(content, "auto", destInfo.code);
+        if (!t) continue;
+
         const emb = new EmbedBuilder()
           .setColor(destInfo.color)
-          .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL() })
-          .setDescription(`💬 ${translated}`)
-          .setFooter({ text: `🌍 Da Globale → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|` });
+          .setAuthor({
+            name: msg.author.username,
+            iconURL: msg.author.displayAvatarURL(),
+          })
+          .setDescription(`💬 ${t}`)
+          .setFooter({
+            text: `🌍 Da Globale → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|`,
+          });
         await destCh.send({ embeds: [emb] });
       }
       return;
     }
 
-    // 📕 Caso 2: scritto in un canale lingua
+    // ✳️ Caso 2 – Messaggio da un canale linguistico
     if (!src) return;
-    if (cooldown(msg)) return;
 
-    // Copia nel globale solo messaggio originale
+    const skip = cooldown(msg);
+    if (skip) return;
+
+    // Pubblica messaggio originale nel GLOBALE
     if (globalCh) {
       const emb = new EmbedBuilder()
         .setColor(src.color)
@@ -146,19 +167,28 @@ client.on("messageCreate", async (msg) => {
           iconURL: msg.author.displayAvatarURL(),
         })
         .setDescription(`💬 ${content}`)
-        .setFooter({ text: `🕒 ${now()} | ${src.flag} Messaggio originale |T-BOT|` });
+        .setFooter({
+          text: `🕒 ${now()} | ${src.flag} Messaggio originale |T-BOT|`,
+        });
       await globalCh.send({ embeds: [emb] });
     }
 
-    // Traduzione negli altri canali
+    // Traduzioni per gli altri canali
     for (const [destName, dest] of Object.entries(langs)) {
       if (destName === cname) continue;
-      const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
+      const destCh = guild.channels.cache.find(
+        (c) => c.name.toLowerCase() === destName
+      );
       if (!destCh) continue;
       const t = await translateText(content, src.code, dest.code);
+      if (!t) continue;
+
       const emb = new EmbedBuilder()
         .setColor(dest.color)
-        .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL() })
+        .setAuthor({
+          name: msg.author.username,
+          iconURL: msg.author.displayAvatarURL(),
+        })
         .setDescription(`💬 ${t}`)
         .setFooter({
           text: `Tradotto da ${src.flag} ${src.code.toUpperCase()} → ${dest.flag} ${dest.code.toUpperCase()} |T-BOT|`,
