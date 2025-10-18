@@ -1,11 +1,15 @@
-// ================================
-// 🌍  Bot Traduttore Multicanale
-// ================================
-
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
-import translateModule from "@vitalets/google-translate-api";   // 👈 importa sempre l’oggetto intero
 import express from "express";
+
+// import diretto universale (compatibile con tutte le versioni)
+import * as googleTranslateApi from "@vitalets/google-translate-api";
+
+// funzione helper che estrae la funzione vera dal modulo
+const translateText =
+  googleTranslateApi.default?.default ||
+  googleTranslateApi.default ||
+  googleTranslateApi;
 
 // ✅ compatibilità universale per tutte le versioni del pacchetto
 const googleTranslateApi = translateModule.default || translateModule;
