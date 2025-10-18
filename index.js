@@ -44,7 +44,7 @@ const channelLanguages = {
 
 const globalChannelName = "alliance-chat-globale";
 
-client.once("ready", () => {
+client.once("clientReady", () => {
   console.log(`✅ Traduttore ${client.user.tag} è online con messaggi embed.`);
 });
 
