@@ -1,5 +1,5 @@
 // ================================
-// 🌍 Bot Traduttore Multicanale — FIX finale anti‑duplicati
+// 🌍 Bot Traduttore Multicanale — vFinale + DEBUG_LOG + colori + timestamp
 // ================================
 
 import dotenv from "dotenv";
@@ -7,7 +7,7 @@ import { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } from "discord.j
 import express from "express";
 
 // ================================
-// 🌐 Server HTTP per Render
+// 🌐 Server HTTP — keepalive Render
 // ================================
 const app = express();
 app.get("/", (_req, res) => res.send("✅ Traduttore Bot attivo e in ascolto!"));
@@ -17,10 +17,28 @@ app.listen(port, "0.0.0.0", () => {
 });
 
 // ================================
-// ⚙️ Configurazione Discord
+// ⚙️ Configurazione
 // ================================
 dotenv.config();
+const DEBUG = process.env.DEBUG_LOG === "true";
 
+// 🎨 Codici colore ANSI
+const cReset = "\x1b[0m";
+const cRed = "\x1b[31m";
+const cGreen = "\x1b[32m";
+const cBlue = "\x1b[34m";
+const cYellow = "\x1b[33m";
+const cMagenta = "\x1b[35m";
+
+// ⏰ Funzione helper per timestamp
+function time() {
+  const d = new Date();
+  return `[${d.toLocaleTimeString("it-IT", { hour12: false })}]`;
+}
+
+// ================================
+// 🔗 Client Discord
+// ================================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -30,13 +48,12 @@ const client = new Client({
 });
 
 if (globalThis.traduttoreRunning) {
-  console.log("⛔ Istanza duplicata rilevata, uscita.");
+  console.log(`${cRed}${time()} ⛔ Istanza duplicata rilevata, uscita.${cReset}`);
   process.exit(0);
 } else {
   globalThis.traduttoreRunning = true;
 }
 
-// 📘 Mappa canali ↔ lingue + bandiere
 const channelLanguages = {
   "alliance-chat-ita": { code: "it", flag: "🇮🇹", color: 0x3498db },
   "alliance-chat-en": { code: "en", flag: "🇬🇧", color: 0x2ecc71 },
@@ -49,7 +66,7 @@ const channelLanguages = {
 const globalChannelName = "alliance-chat-globale";
 
 client.once("clientReady", async () => {
-  console.log(`✅ Traduttore ${client.user.tag} è online.`);
+  console.log(`${cGreen}${time()} ✅ Traduttore ${client.user.tag} è online.${cReset}`);
 
   const commands = [
     { name: "ping", description: "Mostra la latenza del bot" },
@@ -59,14 +76,14 @@ client.once("clientReady", async () => {
   try {
     const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    console.log("✅ Comandi slash /ping e /status registrati globalmente.");
+    console.log(`${cBlue}${time()} ✅ Comandi /ping e /status registrati.${cReset}`);
   } catch (err) {
-    console.error("❌ Errore registrando i comandi slash:", err);
+    console.error(`${cRed}${time()} ❌ Errore registrazione comandi:${cReset}`, err);
   }
 });
 
 // ================================
-// 🔧 Funzione di traduzione migliorata
+// 🔧 Funzione di traduzione
 // ================================
 async function translateText(text, from, to) {
   try {
@@ -83,7 +100,7 @@ async function translateText(text, from, to) {
       .trim();
     return translated || text;
   } catch (err) {
-    console.error(`❌ Errore API di traduzione (${from}→${to}):`, err.message);
+    console.error(`${cRed}${time()} ❌ Errore API traduzione (${from}→${to}):${cReset}`, err.message);
     return text;
   }
 }
@@ -100,7 +117,6 @@ client.on("messageCreate", async (message) => {
     const text = message.content?.trim();
     if (!text) return;
 
-    // 🧱 Filtro universale anti‑loop
     const footerText = message.embeds?.[0]?.footer?.text?.toLowerCase() || "";
     if (footerText.includes("|t-bot|")) return;
 
@@ -111,9 +127,10 @@ client.on("messageCreate", async (message) => {
       (c) => c.name.toLowerCase() === globalChannelName
     );
 
-    console.log(`📨 ${message.author.username} -> #${channelName}: ${text}`);
+    if (DEBUG)
+      console.log(`${cBlue}${time()} 📨 ${message.author.username} → #${channelName}:${cReset} ${text}`);
 
-    // 🔹 Caso 1 — messaggio nel canale globale
+    // 🔹 Caso 1 — canale globale
     if (channelName === globalChannelName) {
       const flagMatch = message.embeds?.[0]?.footer?.text?.match(/([🇦-🏴])/u);
       const originalLang = flagMatch
@@ -121,7 +138,6 @@ client.on("messageCreate", async (message) => {
         : null;
 
       for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
-        // ❌ Evita reinvio nella lingua originale se noto
         if (originalLang && targetInfo.code === originalLang.code) continue;
 
         const targetChannel = message.guild.channels.cache.find(
@@ -130,8 +146,16 @@ client.on("messageCreate", async (message) => {
         if (!targetChannel) continue;
 
         const tradotto = await translateText(text, "auto", targetInfo.code);
-        if (!tradotto) continue;
+        if (DEBUG)
+          console.log(
+            `${cYellow}${time()} 🌍 Traduzione da 🌍 (globale)${
+              originalLang ? ` (orig:${originalLang.code})` : ""
+            } → ${targetInfo.flag}${targetInfo.code}:${cReset} ${tradotto.slice(0, 60)}${
+              tradotto.length > 60 ? "..." : ""
+            }`
+          );
 
+        if (!tradotto) continue;
         const embed = new EmbedBuilder()
           .setColor(targetInfo.color)
           .setAuthor({
@@ -148,7 +172,7 @@ client.on("messageCreate", async (message) => {
       return;
     }
 
-    // 🔹 Caso 2 — messaggio in canale lingua
+    // 🔹 Caso 2 — canale lingua specifica
     if (!sourceInfo) return;
 
     for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
@@ -161,8 +185,15 @@ client.on("messageCreate", async (message) => {
       if (!targetChannel) continue;
 
       const tradotto = await translateText(text, sourceInfo.code, targetInfo.code);
-      if (!tradotto) continue;
+      if (DEBUG)
+        console.log(
+          `${cGreen}${time()} 🌐 Traduzione ${sourceInfo.flag}${sourceInfo.code} → ${targetInfo.flag}${targetInfo.code}:${cReset} ${tradotto.slice(
+            0,
+            60
+          )}${tradotto.length > 60 ? "..." : ""}`
+        );
 
+      if (!tradotto) continue;
       const embed = new EmbedBuilder()
         .setColor(targetInfo.color)
         .setAuthor({
@@ -193,12 +224,12 @@ client.on("messageCreate", async (message) => {
       await globalChannel.send({ embeds: [embedOriginal] });
     }
   } catch (err) {
-    console.error("💥 Errore handler messageCreate:", err);
+    console.error(`${cRed}${time()} 💥 Errore handler:${cReset}`, err);
   }
 });
 
 // ================================
-// 💬 Gestione comandi slash
+// 💬 Comandi /ping /status
 // ================================
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -220,7 +251,9 @@ client.on("interactionCreate", async (interaction) => {
       .setColor(0x3498db)
       .setTitle("🤖 Stato del Traduttore Bot")
       .setDescription(
-        `🟢 Online come **${client.user.tag}**\n📡 Guilds: **${client.guilds.cache.size}**\n✅ Traduzione automatica attiva`
+        `🟢 Online come **${client.user.tag}**\n📡 Guilds: **${client.guilds.cache.size}**\n🕓 Orario server: **${time()}**\n⚙️ Log Debug: **${
+          DEBUG ? "ATTIVO" : "SPENTO"
+        }**`
       )
       .setTimestamp()
       .setFooter({ text: "System check completato |T-BOT|" });
