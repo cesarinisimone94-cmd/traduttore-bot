@@ -46,12 +46,13 @@ const channelLanguages = {
 
 const globalChannelName = "alliance-chat-globale";
 
-client.once("clientready", () => {
+// L’evento corretto dal warning
+client.once("clientReady", () => {
   console.log(`✅ Traduttore ${client.user.tag} è online con messaggi embed.`);
 });
 
 // ================================
-// 🔧  Funzione di traduzione con fetch
+// 🔧  Funzione di traduzione
 // ================================
 async function translateText(text, { from = "auto", to = "en" }) {
   try {
@@ -73,22 +74,27 @@ async function translateText(text, { from = "auto", to = "en" }) {
 }
 
 // ================================
-// 🗣️  Gestione dei messaggi (con filtro anti-duplicato)
+// 🗣️  Gestione messaggi (anti-duplicato definitivo)
 // ================================
 client.on("messageCreate", async (message) => {
-  // 🛑 Ignora messaggi del bot
+  // 🛑 Ignora qualsiasi messaggio del bot (testo o embed)
+  if (message.author.id === client.user.id) return;
   if (message.author.bot) return;
   if (message.partial || !message.guild) return;
 
-  // 🛑 Ignora messaggi di embed già tradotti o “messaggi originali”
+  // 🛑 Ignora messaggi embed già tradotti o originali
   const footerText = message.embeds?.[0]?.footer?.text?.toLowerCase() || "";
-  if (footerText.includes("tradotto") || footerText.includes("messaggio originale")) return;
+  if (
+    footerText.includes("tradotto") ||
+    footerText.includes("messaggio originale")
+  )
+    return;
 
   const channelName = message.channel.name.toLowerCase();
   const text = message.content.trim();
   if (!text) return;
 
-  // 🔹 Caso 1: messaggio inviato nel canale globale → traduci verso gli altri
+  // 🔹 Caso 1: messaggio inviato nel canale globale
   if (channelName === globalChannelName) {
     for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
       const targetChannel = message.guild.channels.cache.find(
@@ -97,10 +103,7 @@ client.on("messageCreate", async (message) => {
       if (!targetChannel) continue;
 
       const tradotto = await translateText(text, { to: targetInfo.code });
-      if (!tradotto) {
-        console.error(`❌ Errore traduzione per ${targetInfo.code}`);
-        continue;
-      }
+      if (!tradotto) continue;
 
       const embed = new EmbedBuilder()
         .setColor(targetInfo.color)
@@ -115,16 +118,16 @@ client.on("messageCreate", async (message) => {
 
       await targetChannel.send({ embeds: [embed] });
     }
-    return; // ⛔ fine: non rimandare al globale (evita loop)
+    return; // ⛔ evita ciclo globale ↔ globale
   }
 
-  // 🔹 Caso 2: messaggio in un canale di lingua specifica → traduci verso gli altri
+  // 🔹 Caso 2: messaggio in un canale lingua → traduci verso gli altri
   const sourceInfo = channelLanguages[channelName];
   if (!sourceInfo) return;
 
-  // Traduzioni verso ogni altro canale
   for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
-    if (targetName === channelName || targetInfo.code === sourceInfo.code) continue;
+    if (targetName === channelName || targetInfo.code === sourceInfo.code)
+      continue;
 
     const targetChannel = message.guild.channels.cache.find(
       (ch) => ch.name.toLowerCase() === targetName
@@ -135,10 +138,7 @@ client.on("messageCreate", async (message) => {
       from: sourceInfo.code,
       to: targetInfo.code,
     });
-    if (!tradotto) {
-      console.error(`❌ Errore traduzione ${sourceInfo.code}→${targetInfo.code}`);
-      continue;
-    }
+    if (!tradotto) continue;
 
     const embed = new EmbedBuilder()
       .setColor(targetInfo.color)
@@ -154,7 +154,7 @@ client.on("messageCreate", async (message) => {
     await targetChannel.send({ embeds: [embed] });
   }
 
-  // 🔹 Invia anche il messaggio originale nel canale globale (solo se non è globale)
+  // 🔹 Invia anche il messaggio originale nel canale globale (una volta sola)
   const globalChannel = message.guild.channels.cache.find(
     (ch) => ch.name.toLowerCase() === globalChannelName
   );
