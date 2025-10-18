@@ -11,8 +11,15 @@ dotenv.config({ quiet: true });
 
 // 🔹 Server HTTP per evitare sleep su Render
 const app = express();
+
+// rotta di controllo: Render userà questa per verificare la porta
 app.get("/", (req, res) => res.send("✅ Traduttore Bot attivo!"));
-app.listen(10000, () => console.log("🌐 Server di ping attivo sulla porta 10000"));
+
+// usa la porta indicata da Render, e l'host 0.0.0.0
+const port = process.env.PORT || 10000;
+app.listen(port, "0.0.0.0", () => {
+  console.log(`🌐 Server HTTP attivo sulla porta ${port}`);
+});
 
 // ================================
 // ⚙️  Configurazione Discord
