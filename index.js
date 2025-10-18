@@ -112,7 +112,7 @@ async function handleRateLimit(msg, langCode) {
 }
 
 // 🚀 Ready
-client.once("ready", async () => {
+client.once("clientready", async () => {
   console.log(`${c.green}${timeTag()} ✅ Bot online come ${client.user.tag}${c.reset}`);
   const cmds = [
     { name: "ping", description: "Mostra la latenza" },
