@@ -5,7 +5,8 @@
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
 // ✅ Import corretto per le versioni recenti (v11+)
-import googleTranslateApi from "@vitalets/google-translate-api";
+import translatePkg from "@vitalets/google-translate-api";
+const googleTranslateApi = translatePkg.default || translatePkg;
 import express from "express";
 
 // ================================
