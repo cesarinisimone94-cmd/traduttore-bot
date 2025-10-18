@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
-import translate from "google-translate-api-x";
+import translate from "@vitalets/google-translate-api";
 
 dotenv.config({ quiet: true });
 
