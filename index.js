@@ -9,12 +9,11 @@ import express from "express";
 
 const app = express();
 
-// endpoint di test
 app.get("/", (req, res) => {
   res.send("✅ Traduttore Bot attivo e in ascolto!");
 });
 
-// Render imposta la porta nella variabile d’ambiente PORT
+// Usa la porta assegnata da Render (default 10000)
 const port = process.env.PORT || 10000;
 
 app.listen(port, "0.0.0.0", () => {
