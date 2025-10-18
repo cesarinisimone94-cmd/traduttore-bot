@@ -58,6 +58,14 @@ client.once("clientReady", () => {
 // ================================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
+
+  // 🛑 Evita doppie elaborazioni dovute a cache interna o doppie istanze
+  if (message.partial) return;
+  if (!message.guild) return; 
+
+  // Se il messaggio è già stato tradotto (tag "Traduzione"), esci subito
+  if (message.embeds.length > 0 && message.embeds[0].footer?.text?.includes("Tradotto")) return;
+  
   const channelName = message.channel.name.toLowerCase();
   const text = message.content.trim();
   if (!text) return;
