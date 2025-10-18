@@ -86,7 +86,7 @@ function cooldown(msg) {
 // ----------------------
 // ON READY
 // ----------------------
-client.once("clientready", async () => {
+client.once("ready", async () => {
   console.log(`${c.green}${tag()} ✅ Bot online come ${client.user.tag}${c.reset}`);
   const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), {
