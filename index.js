@@ -1,5 +1,5 @@
 // ================================
-// 🌍 Bot Traduttore Multicanale — versione FIX + Comandi Slash
+// 🌍 Bot Traduttore Multicanale — FIX finale anti‑duplicati
 // ================================
 
 import dotenv from "dotenv";
@@ -29,7 +29,6 @@ const client = new Client({
   ],
 });
 
-// 🧱 Blocca avvii multipli accidentalmente
 if (globalThis.traduttoreRunning) {
   console.log("⛔ Istanza duplicata rilevata, uscita.");
   process.exit(0);
@@ -52,18 +51,9 @@ const globalChannelName = "alliance-chat-globale";
 client.once("clientReady", async () => {
   console.log(`✅ Traduttore ${client.user.tag} è online.`);
 
-  // ================================
-  // 🧩 Registrazione comandi slash
-  // ================================
   const commands = [
-    {
-      name: "ping",
-      description: "Mostra la latenza del bot",
-    },
-    {
-      name: "status",
-      description: "Mostra lo stato attuale del bot traduttore",
-    },
+    { name: "ping", description: "Mostra la latenza del bot" },
+    { name: "status", description: "Mostra lo stato attuale del bot traduttore" },
   ];
 
   try {
@@ -110,8 +100,9 @@ client.on("messageCreate", async (message) => {
     const text = message.content?.trim();
     if (!text) return;
 
+    // 🧱 Filtro universale anti‑loop
     const footerText = message.embeds?.[0]?.footer?.text?.toLowerCase() || "";
-    if (footerText.includes("tradotto") || footerText.includes("messaggio originale")) return;
+    if (footerText.includes("|t-bot|")) return;
 
     const channelName = message.channel.name.toLowerCase();
     const sourceInfo =
@@ -122,47 +113,47 @@ client.on("messageCreate", async (message) => {
 
     console.log(`📨 ${message.author.username} -> #${channelName}: ${text}`);
 
-   // 🔹 Caso 1 — messaggio nel canale globale
-if (channelName === globalChannelName) {
-  // Estraiamo la lingua originale se presente nell'embed (es. 🇮🇹 Messaggio originale da ...)
-  const flagMatch = message.embeds?.[0]?.footer?.text?.match(/([🇦-🏴])/u);
-  const originalLang = flagMatch
-    ? Object.values(channelLanguages).find((v) => v.flag === flagMatch[1])
-    : null;
+    // 🔹 Caso 1 — messaggio nel canale globale
+    if (channelName === globalChannelName) {
+      const flagMatch = message.embeds?.[0]?.footer?.text?.match(/([🇦-🏴])/u);
+      const originalLang = flagMatch
+        ? Object.values(channelLanguages).find((v) => v.flag === flagMatch[1])
+        : null;
 
-  for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
-    // ❌ Se la lingua target coincide con quella originale, salta (evita doppio invio)
-    if (originalLang && targetInfo.code === originalLang.code) continue;
+      for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
+        // ❌ Evita reinvio nella lingua originale se noto
+        if (originalLang && targetInfo.code === originalLang.code) continue;
 
-    const targetChannel = message.guild.channels.cache.find(
-      (c) => c.name.toLowerCase() === targetName
-    );
-    if (!targetChannel) continue;
+        const targetChannel = message.guild.channels.cache.find(
+          (c) => c.name.toLowerCase() === targetName
+        );
+        if (!targetChannel) continue;
 
-    const tradotto = await translateText(text, "auto", targetInfo.code);
-    if (!tradotto) continue;
+        const tradotto = await translateText(text, "auto", targetInfo.code);
+        if (!tradotto) continue;
 
-    const embed = new EmbedBuilder()
-      .setColor(targetInfo.color)
-      .setAuthor({
-        name: message.author.username,
-        iconURL: message.author.displayAvatarURL(),
-      })
-      .setDescription(`💬 ${tradotto}`)
-      .setFooter({
-        text: `Tradotto da 🌍 (globale) → ${targetInfo.flag} ${targetInfo.code.toUpperCase()}`,
-      });
+        const embed = new EmbedBuilder()
+          .setColor(targetInfo.color)
+          .setAuthor({
+            name: message.author.username,
+            iconURL: message.author.displayAvatarURL(),
+          })
+          .setDescription(`💬 ${tradotto}`)
+          .setFooter({
+            text: `Tradotto da 🌍 (globale) → ${targetInfo.flag} ${targetInfo.code.toUpperCase()} |T-BOT|`,
+          });
 
-    await targetChannel.send({ embeds: [embed] });
-  }
-  return;
-}
+        await targetChannel.send({ embeds: [embed] });
+      }
+      return;
+    }
 
-    // 🔹 Caso 2 — messaggio in canale lingua specifica
+    // 🔹 Caso 2 — messaggio in canale lingua
     if (!sourceInfo) return;
 
     for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
-      if (targetName === channelName || targetInfo.code === sourceInfo.code) continue;
+      if (targetName === channelName || targetInfo.code === sourceInfo.code)
+        continue;
 
       const targetChannel = message.guild.channels.cache.find(
         (c) => c.name.toLowerCase() === targetName
@@ -180,13 +171,13 @@ if (channelName === globalChannelName) {
         })
         .setDescription(`💬 ${tradotto}`)
         .setFooter({
-          text: `Tradotto da ${sourceInfo.flag} ${sourceInfo.code.toUpperCase()} → ${targetInfo.flag} ${targetInfo.code.toUpperCase()}`,
+          text: `Tradotto da ${sourceInfo.flag} ${sourceInfo.code.toUpperCase()} → ${targetInfo.flag} ${targetInfo.code.toUpperCase()} |T-BOT|`,
         });
 
       await targetChannel.send({ embeds: [embed] });
     }
 
-    // 🔹 Invia il messaggio originale al canale globale
+    // 🔹 Copia nel canale globale
     if (globalChannel && channelName !== globalChannelName) {
       const embedOriginal = new EmbedBuilder()
         .setColor(0x95a5a6)
@@ -196,26 +187,25 @@ if (channelName === globalChannelName) {
         })
         .setDescription(`💬 ${text}`)
         .setFooter({
-          text: `${sourceInfo.flag} Messaggio originale da ${channelName}`,
+          text: `${sourceInfo.flag} Messaggio originale da ${channelName} |T-BOT|`,
         });
 
       await globalChannel.send({ embeds: [embedOriginal] });
     }
   } catch (err) {
-    console.error(`💥 Errore handler messageCreate:`, err);
+    console.error("💥 Errore handler messageCreate:", err);
   }
 });
 
 // ================================
-// 💬 Gestione dei comandi slash
+// 💬 Gestione comandi slash
 // ================================
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  const { commandName } = interaction;
-  if (commandName === "ping") {
+  if (interaction.commandName === "ping") {
     const latency = Date.now() - interaction.createdTimestamp;
-    await interaction.reply({
+    return interaction.reply({
       embeds: [
         new EmbedBuilder()
           .setColor(0x2ecc71)
@@ -225,7 +215,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-  if (commandName === "status") {
+  if (interaction.commandName === "status") {
     const embed = new EmbedBuilder()
       .setColor(0x3498db)
       .setTitle("🤖 Stato del Traduttore Bot")
@@ -233,9 +223,9 @@ client.on("interactionCreate", async (interaction) => {
         `🟢 Online come **${client.user.tag}**\n📡 Guilds: **${client.guilds.cache.size}**\n✅ Traduzione automatica attiva`
       )
       .setTimestamp()
-      .setFooter({ text: "System check completato" });
+      .setFooter({ text: "System check completato |T-BOT|" });
 
-    await interaction.reply({ embeds: [embed], ephemeral: true });
+    return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 });
 
