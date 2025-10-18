@@ -97,34 +97,41 @@ client.once("clientready", async () => {
   });
 });
 
-// ----------------------
-// Gestione messaggi — FINAL FIX con ID‑tracking + firma anti‑duplicati gateway
-// ----------------------
-const sentMessages = new Set(); // messaggi inviati dal bot
-const recentMessages = new Map(); // firme per anti‑doppi eventi Gateway
-const DUP_WINDOW_MS = 1500; // finestra di 1.5s per eventi duplicati
+// ================================
+// Gestione messaggi — FIX definitivo anti-doppioni + Logger diagnostico
+// ================================
+const sentMessages = new Set();
+const processedIds = new Map(); // ID messaggi già processati (TTL 5 min)
+const PROCESSED_TTL = 5 * 60 * 1000; // 5 minuti
+
+// funzione per pulire la cache
+function pruneProcessed() {
+  const nowT = Date.now();
+  for (const [id, ts] of processedIds) {
+    if (nowT - ts > PROCESSED_TTL) processedIds.delete(id);
+  }
+}
+setInterval(pruneProcessed, 60 * 1000); // pulizia ogni 60 s
 
 client.on("messageCreate", async (msg) => {
   try {
     if (!msg.guild) return;
 
-    // 🔒 evita auto‑loop e duplicazioni immediate
+    // 🔒 blocco auto‑messaggi
     if (sentMessages.has(msg.id)) return;
     if (msg.author?.id === client.user.id) return;
     if (msg.author?.bot) return;
     if (msg.webhookId) return;
 
-    // ✅ marca subito questo messageId come già processato
-    sentMessages.add(msg.id);
-    // Mantienilo 60 s per coprire eventuali ritardi gateway
-    setTimeout(() => sentMessages.delete(msg.id), 60000);
+    // ⚡ Anti‑duplicati su ID
+    if (processedIds.has(msg.id)) {
+      console.log(`${c.red}${tag()} ⚙️ Ignorato duplicato msg.id=${msg.id}${c.reset}`);
+      return;
+    }
+    processedIds.set(msg.id, Date.now());
 
-    // ⚡ filtro anti‑doppi eventi basato su firma (autore+canale+contenuto)
-    const signature = `${msg.author.id}_${msg.channel.id}_${msg.content}`;
-    const nowT = Date.now();
-    if (recentMessages.has(signature) && nowT - recentMessages.get(signature) < DUP_WINDOW_MS) return;
-    recentMessages.set(signature, nowT);
-    for (const [sig, ts] of recentMessages) if (nowT - ts > DUP_WINDOW_MS) recentMessages.delete(sig);
+    // 🧹 ripulisci ogni tanto
+    pruneProcessed();
 
     // Evita embed puri
     if (!msg.content && msg.embeds.length > 0) return;
@@ -143,11 +150,12 @@ client.on("messageCreate", async (msg) => {
     const globalCh = guild.channels.cache.find((c) => c.name.toLowerCase() === globalName);
     const src = langs[cname];
 
-    // 🌍 1️⃣ messaggio nel globale
+    // 🌍 Messaggio dal globale → traduzioni in tutti i canali lingua
     if (cname === globalName.toLowerCase()) {
       for (const [destName, dest] of Object.entries(langs)) {
         const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
         if (!destCh) continue;
+
         const t = await translateText(content, "auto", dest.code);
         if (!t) continue;
 
@@ -164,11 +172,11 @@ client.on("messageCreate", async (msg) => {
       return;
     }
 
-    // 🗣️ 2️⃣ messaggio da canale lingua
+    // 🗣️ Messaggi da canali lingua
     if (!src) return;
     if (cooldown(msg)) return;
 
-    // → invia nel globale
+    // → invio nel globale
     if (globalCh) {
       const emb = new EmbedBuilder()
         .setColor(src.color)
@@ -186,7 +194,7 @@ client.on("messageCreate", async (msg) => {
       setTimeout(() => sentMessages.delete(sent.id), 60000);
     }
 
-    // → traduzioni negli altri
+    // → traduzioni negli altri canali lingua
     for (const [destName, dest] of Object.entries(langs)) {
       if (destName === cname) continue;
       const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
