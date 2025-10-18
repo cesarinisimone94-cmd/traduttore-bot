@@ -1,18 +1,20 @@
+// ================================
+// 🌍  Bot Traduttore Multicanale
+// ================================
+
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
 import express from "express";
 
-// import diretto universale (compatibile con tutte le versioni)
+// import universale della libreria di traduzione (funziona con ogni versione)
 import * as googleTranslateApi from "@vitalets/google-translate-api";
 
-// funzione helper che estrae la funzione vera dal modulo
-const translateText =
+// funzione helper che restituisce la vera funzione di traduzione
+const googleTranslate =
   googleTranslateApi.default?.default ||
   googleTranslateApi.default ||
   googleTranslateApi;
 
-// ✅ compatibilità universale per tutte le versioni del pacchetto
-const googleTranslateApi = translateModule.default || translateModule;
 // ================================
 // 🌐  Server HTTP per Render
 // ================================
@@ -54,7 +56,7 @@ const channelLanguages = {
 
 const globalChannelName = "alliance-chat-globale";
 
-client.once("clientready", () => {
+client.once("clientReady", () => {
   console.log(`✅ Traduttore ${client.user.tag} è online con messaggi embed.`);
 });
 
@@ -63,8 +65,8 @@ client.once("clientready", () => {
 // ================================
 async function translateText(text, options) {
   try {
-    const res = await googleTranslateApi(text, options);
-    return res.text;
+    const res = await googleTranslate(text, options);
+    return res?.text;
   } catch (error) {
     console.error("Errore API di traduzione:", error.message);
     return null;
