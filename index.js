@@ -1,5 +1,5 @@
 // ================================
-// 🌍  Bot Traduttore Multicanale (senza librerie di traduzione esterne)
+// 🌍  Bot Traduttore Multicanale (versione stabile senza duplicati)
 // ================================
 
 import dotenv from "dotenv";
@@ -51,7 +51,7 @@ client.once("ready", () => {
 });
 
 // ================================
-// 🔧  Funzione di traduzione - chiama direttamente l’API Google Translate
+// 🔧  Funzione di traduzione con fetch
 // ================================
 async function translateText(text, { from = "auto", to = "en" }) {
   try {
@@ -73,24 +73,22 @@ async function translateText(text, { from = "auto", to = "en" }) {
 }
 
 // ================================
-// 🗣️  Gestione dei messaggi
+// 🗣️  Gestione dei messaggi (con filtro anti-duplicato)
 // ================================
 client.on("messageCreate", async (message) => {
+  // 🛑 Ignora messaggi del bot
   if (message.author.bot) return;
-  if (message.partial) return;
-  if (!message.guild) return;
+  if (message.partial || !message.guild) return;
 
-  if (
-    message.embeds.length > 0 &&
-    message.embeds[0].footer?.text?.includes("Tradotto")
-  )
-    return;
+  // 🛑 Ignora messaggi di embed già tradotti o “messaggi originali”
+  const footerText = message.embeds?.[0]?.footer?.text?.toLowerCase() || "";
+  if (footerText.includes("tradotto") || footerText.includes("messaggio originale")) return;
 
   const channelName = message.channel.name.toLowerCase();
   const text = message.content.trim();
   if (!text) return;
 
-  // 🔹 Caso 1: canale globale → traduci verso tutti gli altri
+  // 🔹 Caso 1: messaggio inviato nel canale globale → traduci verso gli altri
   if (channelName === globalChannelName) {
     for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
       const targetChannel = message.guild.channels.cache.find(
@@ -117,16 +115,16 @@ client.on("messageCreate", async (message) => {
 
       await targetChannel.send({ embeds: [embed] });
     }
-    return;
+    return; // ⛔ fine: non rimandare al globale (evita loop)
   }
 
-  // 🔹 Caso 2: messaggio in un canale di lingua specifica
+  // 🔹 Caso 2: messaggio in un canale di lingua specifica → traduci verso gli altri
   const sourceInfo = channelLanguages[channelName];
   if (!sourceInfo) return;
 
+  // Traduzioni verso ogni altro canale
   for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
-    if (targetName === channelName || targetInfo.code === sourceInfo.code)
-      continue;
+    if (targetName === channelName || targetInfo.code === sourceInfo.code) continue;
 
     const targetChannel = message.guild.channels.cache.find(
       (ch) => ch.name.toLowerCase() === targetName
@@ -156,7 +154,7 @@ client.on("messageCreate", async (message) => {
     await targetChannel.send({ embeds: [embed] });
   }
 
-  // 🔹 Invia il testo originale nel canale globale (senza traduzione)
+  // 🔹 Invia anche il messaggio originale nel canale globale (solo se non è globale)
   const globalChannel = message.guild.channels.cache.find(
     (ch) => ch.name.toLowerCase() === globalChannelName
   );
