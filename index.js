@@ -1,5 +1,5 @@
 // ================================
-// 🌍 Traduttore Chat Alliance — Cooldown per lingua + Reazione 🕒 rimovibile
+// 🌍 Traduttore Chat Alliance — con fix globale + no duplicati 🇵🇱
 // ================================
 
 import dotenv from "dotenv";
@@ -18,7 +18,7 @@ const c = {
   yellow: "\x1b[33m",
 };
 
-// 🕓 Timestamp helpers
+// 🕓 Funzioni di tempo
 function time() {
   const d = new Date();
   return d.toLocaleTimeString("it-IT", { hour12: false });
@@ -28,7 +28,7 @@ function dateShort() {
   return d.toLocaleDateString("it-IT");
 }
 function timeTag() {
-  return `[${dateShort()} ${time()}]`;
+  return `[${dateShort()} ${time()}]`;
 }
 
 // 🌐 Server HTTP keep-alive
@@ -49,7 +49,7 @@ if (globalThis.tradRunning) {
 }
 globalThis.tradRunning = true;
 
-// 📜 Canali / Lingue
+// 📜 Canali/Lingue
 const channelLanguages = {
   "alliance-chat-ita": { code: "it", flag: "🇮🇹", name: "Italiano", color: 0x3498db },
   "alliance-chat-en": { code: "en", flag: "🇬🇧", name: "Inglese", color: 0x2ecc71 },
@@ -61,7 +61,7 @@ const channelLanguages = {
 };
 const globalChannelName = "alliance-chat-globale";
 
-// 🧠 Traduzione (Google libera)
+// 🧠 Traduzione con Google (free API)
 async function translateText(text, from, to) {
   try {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(
@@ -81,7 +81,7 @@ async function translateText(text, from, to) {
   }
 }
 
-// 🕒 Rate limiter per lingua
+// 🕒 Cooldown per lingua
 const cooldowns = new Map();
 const DEFAULT_COOLDOWN = Number(process.env.COOLDOWN_MS) || 2000;
 const REMOVE_REACTION_MS = Number(process.env.REMOVE_REACTION_MS) || 5000;
@@ -112,7 +112,7 @@ async function handleRateLimit(msg, langCode) {
 }
 
 // 🚀 Ready
-client.once("clientready", async () => {
+client.once("ready", async () => {
   console.log(`${c.green}${timeTag()} ✅ Bot online come ${client.user.tag}${c.reset}`);
   const cmds = [
     { name: "ping", description: "Mostra la latenza" },
@@ -127,7 +127,7 @@ client.once("clientready", async () => {
   }
 });
 
-// 💬 Gestione messaggi
+// 💬 Gestione messaggi — con fix globale + no duplicati
 client.on("messageCreate", async (msg) => {
   try {
     if (!msg.guild || msg.author.bot || msg.author.id === client.user.id) return;
@@ -135,15 +135,30 @@ client.on("messageCreate", async (msg) => {
     const text = msg.content?.trim();
     if (!text) return;
 
-    const ft = msg.embeds?.[0]?.footer?.text?.toLowerCase() || "";
-    if (ft.includes("|t-bot|")) return;
+    // 🛡️ Evita doppie traduzioni dei messaggi del bot
+    const firstEmbed = msg.embeds?.[0];
+    const footerText = firstEmbed?.footer?.text?.toLowerCase?.() || "";
+    if (
+      footerText.includes("|t-bot|") ||
+      firstEmbed?.author?.name?.toLowerCase()?.includes("t-bot") ||
+      msg.webhookId
+    ) {
+      if (DEBUG)
+        console.log(`${c.yellow}${timeTag()} ⛔ Ignorato embed T-BOT (evita doppioni)${c.reset}`);
+      return;
+    }
 
     const guild = msg.guild;
     const cname = msg.channel.name.toLowerCase();
-    const src = channelLanguages[cname];
+
+    // 🔹 Identifica la lingua sorgente
+    let src = channelLanguages[cname];
+    if (!src && cname === globalChannelName.toLowerCase()) {
+      src = { code: "auto", flag: "🌍", name: "Globale", color: 0x95a5a6 };
+    }
     if (!src) return;
 
-    // 🔸 Rate‑limit basato sulla lingua
+    // 🔹 Anti-flood
     const flood = await handleRateLimit(msg, src.code);
     if (flood) return;
 
@@ -151,8 +166,11 @@ client.on("messageCreate", async (msg) => {
       (c) => c.name.toLowerCase() === globalChannelName
     );
 
-    // 1️⃣ Copia nel canale globale (solo messaggio originale)
-    if (globalChannel) {
+    if (DEBUG)
+      console.log(`${c.blue}${timeTag()} 📨 ${msg.author.username} → #${cname}:${c.reset} ${text}`);
+
+    // 1️⃣ Copia messaggio originale nel canale globale (se non proviene già da lì)
+    if (globalChannel && cname !== globalChannelName.toLowerCase()) {
       const embed = new EmbedBuilder()
         .setColor(src.color)
         .setAuthor({
@@ -166,30 +184,53 @@ client.on("messageCreate", async (msg) => {
       await globalChannel.send({ embeds: [embed] });
     }
 
-    // 2️⃣ Traduzioni nei rispettivi canali
+    // 2️⃣ Traduzioni in ogni canale
     for (const [destName, destInfo] of Object.entries(channelLanguages)) {
-      if (destName === cname) continue;
-      const dest = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
-      if (!dest) continue;
+      if (destName === cname && src.code !== "auto") continue;
+      const destChannel = guild.channels.cache.find(
+        (c) => c.name.toLowerCase() === destName
+      );
+      if (!destChannel) continue;
 
-      const trad = await translateText(text, src.code, destInfo.code);
-      if (!trad) continue;
+      const translated = await translateText(text, src.code, destInfo.code);
+      if (!translated) continue;
 
       const emb = new EmbedBuilder()
         .setColor(destInfo.color)
-        .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL() })
-        .setDescription(`💬 ${trad}`)
+        .setAuthor({
+          name: msg.author.username,
+          iconURL: msg.author.displayAvatarURL(),
+        })
+        .setDescription(`💬 ${translated}`)
         .setFooter({
           text: `Tradotto da ${src.flag} ${src.code.toUpperCase()} → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|`,
         });
-      await dest.send({ embeds: [emb] });
+
+      await destChannel.send({ embeds: [emb] });
+    }
+
+    // 🔹 Se il messaggio nasce dal canale globale → replica nel globale per visibilità
+    if (cname === globalChannelName.toLowerCase() && globalChannel) {
+      const embGlobal = new EmbedBuilder()
+        .setColor(src.color)
+        .setAuthor({
+          name: `${src.flag} [${src.code.toUpperCase()} – ${src.name}] ${msg.author.username}`,
+          iconURL: msg.author.displayAvatarURL(),
+        })
+        .setDescription(`💬 ${text}`)
+        .setFooter({
+          text: `🕒 ${dateShort()} – ${time()} | 🌍 Messaggio originale dal canale globale |T-BOT|`,
+        });
+      await globalChannel.send({ embeds: [embGlobal] });
+      if (DEBUG)
+        console.log(`${c.green}${timeTag()} 🌍 Traduzione avviata dal canale globale${c.reset}`);
     }
   } catch (err) {
-    console.error(`${c.red}${timeTag()} 💥 Errore handler:${c.reset}`, err);
+    console.error(`${c.red}${timeTag()} 💥 Errore gestione messaggio:${c.reset}`, err);
   }
 });
 
-// ⚙️ Comandi /ping /status
+// ⚙️ Comandi /ping /status
 client.on("interactionCreate", async (i) => {
   if (!i.isChatInputCommand()) return;
 
@@ -223,6 +264,7 @@ client.on("interactionCreate", async (i) => {
         }**\n⏱️ Cooldown:\n${cds}\n🕐 Reazione rimossa: ${REMOVE_REACTION_MS} ms`
       )
       .setTimestamp();
+
     return i.reply({ embeds: [emb], ephemeral: true });
   }
 });
