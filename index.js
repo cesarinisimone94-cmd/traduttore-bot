@@ -1,5 +1,5 @@
 // ================================
-// 🌍 Traduttore Chat Alliance — fix finale (niente doppioni, no traduzioni dal globale)
+// 🌍 Traduttore Chat Alliance — versione finale 2025-10-18
 // ================================
 
 import dotenv from "dotenv";
@@ -9,7 +9,6 @@ import express from "express";
 dotenv.config();
 const DEBUG = process.env.DEBUG_LOG === "true";
 
-// Colori console
 const c = {
   reset: "\x1b[0m",
   red: "\x1b[31m",
@@ -18,7 +17,7 @@ const c = {
   yellow: "\x1b[33m",
 };
 
-// Tempo
+// Utilità tempo
 function time() {
   const d = new Date();
   return d.toLocaleTimeString("it-IT", { hour12: false });
@@ -31,25 +30,21 @@ function timeTag() {
   return `[${dateShort()} ${time()}]`;
 }
 
-// Keep-alive server (Render)
+// 🔁 Keep‑alive per Render
 const app = express();
 app.get("/", (_, res) => res.send("✅ Traduttore attivo"));
-const port = process.env.PORT || 10000;
-app.listen(port, () =>
-  console.log(`${c.green}${timeTag()} 🌐 Server attivo su porta ${port}${c.reset}`)
+app.listen(process.env.PORT || 10000, () =>
+  console.log(`${c.green}${timeTag()} 🌐 Server attivo${c.reset}`)
 );
 
-// Client Discord
+// 🤖 Client Discord
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
-if (globalThis.tradRunning) {
-  console.log(`${c.red}${timeTag()} ⛔ Istanza duplicata - uscita.${c.reset}`);
-  process.exit(0);
-}
+if (globalThis.tradRunning) process.exit(0);
 globalThis.tradRunning = true;
 
-// Config canali
+// 🔤 Canali & lingue
 const channelLanguages = {
   "alliance-chat-ita": { code: "it", flag: "🇮🇹", name: "Italiano", color: 0x3498db },
   "alliance-chat-en": { code: "en", flag: "🇬🇧", name: "Inglese", color: 0x2ecc71 },
@@ -61,40 +56,40 @@ const channelLanguages = {
 };
 const globalChannelName = "alliance-chat-globale";
 
-// Traduzione tramite Google free API
+// 🌐 Traduzioni via Google Free API
 async function translateText(text, from, to) {
   try {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(
       text
     )}`;
     const res = await fetch(url);
-    const j = await res.json();
-    const out = (j[0] || [])
-      .map((t) => (Array.isArray(t) ? t[0] : ""))
+    const data = await res.json();
+    const translated = (data[0] || [])
+      .map((v) => (Array.isArray(v) ? v[0] : ""))
       .join(" ")
       .replace(/\s+/g, " ")
       .trim();
-    return out || text;
-  } catch {
+    return translated || text;
+  } catch (err) {
+    console.error(`${c.red}${timeTag()} ❌ Errore traduzione:${c.reset}`, err.message);
     return text;
   }
 }
 
-// Cooldown
+// ⏱️ Cooldown
 const cooldowns = new Map();
 const DEFAULT_COOLDOWN = Number(process.env.COOLDOWN_MS) || 2000;
 const REMOVE_REACTION_MS = Number(process.env.REMOVE_REACTION_MS) || 5000;
 
-function getCooldownMs(langCode) {
-  const key = `COOLDOWN_${langCode.toUpperCase()}_MS`;
-  return Number(process.env[key]) || DEFAULT_COOLDOWN;
+function getCooldownMs(lang) {
+  return Number(process.env[`COOLDOWN_${lang.toUpperCase()}_MS`]) || DEFAULT_COOLDOWN;
 }
-async function handleRateLimit(msg, langCode) {
-  const ms = getCooldownMs(langCode);
+async function handleRateLimit(msg, lang) {
+  const cd = getCooldownMs(lang);
   const now = Date.now();
   const key = `${msg.author.id}_${msg.channel.id}`;
   const last = cooldowns.get(key) || 0;
-  if (now - last < ms) {
+  if (now - last < cd) {
     try {
       await msg.react("🕒");
       setTimeout(() => msg.reactions.cache.get("🕒")?.remove().catch(() => {}), REMOVE_REACTION_MS);
@@ -105,80 +100,89 @@ async function handleRateLimit(msg, langCode) {
   return false;
 }
 
-// Ready
+// 🚀 READY
 client.once("clientready", async () => {
   console.log(`${c.green}${timeTag()} ✅ Bot online come ${client.user.tag}${c.reset}`);
-  const cmds = [
-    { name: "ping", description: "Mostra la latenza" },
-    { name: "status", description: "Mostra lo stato del traduttore" },
-  ];
   try {
     const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
-    await rest.put(Routes.applicationCommands(client.user.id), { body: cmds });
-  } catch {}
+    await rest.put(Routes.applicationCommands(client.user.id), {
+      body: [
+        { name: "ping", description: "Mostra la latenza" },
+        { name: "status", description: "Mostra lo stato del traduttore" },
+      ],
+    });
+  } catch (e) {
+    console.error(`${c.red}${timeTag()} ❌ Comandi:${c.reset}`, e.message);
+  }
 });
 
-// Gestione messaggi
+// 💬 Gestione messaggi
 client.on("messageCreate", async (msg) => {
   try {
-    if (!msg.guild || msg.author.bot || msg.author.id === client.user.id) return;
+    if (!msg.guild || msg.author.bot || msg.webhookId) return;
     const text = msg.content?.trim();
     if (!text) return;
 
-    const firstEmbed = msg.embeds?.[0];
-    const footerText = firstEmbed?.footer?.text?.toLowerCase?.() || "";
-    if (
-      footerText.includes("|t-bot|") ||
-      firstEmbed?.author?.name?.toLowerCase()?.includes("t-bot") ||
-      msg.webhookId
-    )
-      return;
-
-    const guild = msg.guild;
     const cname = msg.channel.name.toLowerCase();
-
-    // ❌ 1) Se messaggio proviene dal canale globale → ignoralo completamente
-    if (cname === globalChannelName.toLowerCase()) return;
-
-    // 🔹 Identifica lingua sorgente in modo flessibile
-    const src =
-      Object.entries(channelLanguages).find(([key]) => cname.includes(key))?.[1] ||
-      null;
-    if (!src) return;
-
-    const flood = await handleRateLimit(msg, src.code);
-    if (flood) return;
-
+    const guild = msg.guild;
     const globalChannel = guild.channels.cache.find(
       (c) => c.name.toLowerCase() === globalChannelName
     );
+    const srcInfo = channelLanguages[cname];
 
-    // 1️⃣ Copia messaggio originale nel canale globale
+    // 🔹 Caso A) messaggio dal canale GLOBALE
+    if (cname === globalChannelName.toLowerCase()) {
+      // Traduci per ogni canale lingua
+      for (const [destName, destInfo] of Object.entries(channelLanguages)) {
+        const destChannel = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
+        if (!destChannel) continue;
+        const translated = await translateText(text, "auto", destInfo.code);
+        if (!translated) continue;
+
+        const emb = new EmbedBuilder()
+          .setColor(destInfo.color)
+          .setAuthor({
+            name: msg.author.username,
+            iconURL: msg.author.displayAvatarURL(),
+          })
+          .setDescription(`💬 ${translated}`)
+          .setFooter({
+            text: `🌍 Tradotto da Globale → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|`,
+          });
+
+        await destChannel.send({ embeds: [emb] });
+      }
+      return; // Non tradurre ulteriormente / non copiare in globale
+    }
+
+    // 🔹 Caso B) messaggio da canale lingua
+    if (!srcInfo) return;
+
+    const flooded = await handleRateLimit(msg, srcInfo.code);
+    if (flooded) return;
+
+    // Copia nel canale GLOBALE (solo messaggio originale)
     if (globalChannel) {
-      const embed = new EmbedBuilder()
-        .setColor(src.color)
+      const embOrig = new EmbedBuilder()
+        .setColor(srcInfo.color)
         .setAuthor({
-          name: `${src.flag} [${src.code.toUpperCase()} – ${src.name}] ${msg.author.username}`,
+          name: `${srcInfo.flag} [${srcInfo.code.toUpperCase()} – ${srcInfo.name}] ${msg.author.username}`,
           iconURL: msg.author.displayAvatarURL(),
         })
         .setDescription(`💬 ${text}`)
         .setFooter({
-          text: `🕒 ${dateShort()} – ${time()} | ${src.flag} Messaggio originale da ${cname} |T-BOT|`,
+          text: `🕒 ${dateShort()} – ${time()} | ${srcInfo.flag} Messaggio originale da ${cname} |T-BOT|`,
         });
-      await globalChannel.send({ embeds: [embed] });
+      await globalChannel.send({ embeds: [embOrig] });
     }
 
-    // 2️⃣ Traduzioni verso gli altri canali linguistici
+    // Traduzioni nei canali *diversi* dal sorgente
     for (const [destName, destInfo] of Object.entries(channelLanguages)) {
-      // evita il canale d'origine
       if (destName === cname) continue;
-
-      const destChannel = guild.channels.cache.find(
-        (c) => c.name.toLowerCase() === destName
-      );
+      const destChannel = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
       if (!destChannel) continue;
 
-      const translated = await translateText(text, src.code, destInfo.code);
+      const translated = await translateText(text, srcInfo.code, destInfo.code);
       if (!translated) continue;
 
       const emb = new EmbedBuilder()
@@ -189,7 +193,7 @@ client.on("messageCreate", async (msg) => {
         })
         .setDescription(`💬 ${translated}`)
         .setFooter({
-          text: `Tradotto da ${src.flag} ${src.code.toUpperCase()} → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|`,
+          text: `Tradotto da ${srcInfo.flag} ${srcInfo.code.toUpperCase()} → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|`,
         });
 
       await destChannel.send({ embeds: [emb] });
@@ -199,7 +203,7 @@ client.on("messageCreate", async (msg) => {
   }
 });
 
-// Comandi /ping /status
+// ⚙️ Comandi
 client.on("interactionCreate", async (i) => {
   if (!i.isChatInputCommand()) return;
 
@@ -217,11 +221,17 @@ client.on("interactionCreate", async (i) => {
   }
 
   if (i.commandName === "status") {
+    const list = Object.entries(channelLanguages)
+      .map(
+        ([ch, l]) =>
+          `${l.flag} **${l.name}** → #${ch} (${l.code.toUpperCase()})`
+      )
+      .join("\n");
     const emb = new EmbedBuilder()
       .setColor(0x3498db)
       .setTitle("🤖 Stato Traduttore")
       .setDescription(
-        `🟢 Online come **${client.user.tag}**\n⏱️ Cooldown default: ${DEFAULT_COOLDOWN} ms\n💬 Ignora completamente i messaggi da #${globalChannelName}`
+        `🟢 Online come **${client.user.tag}**\n📡 Chat glob: #${globalChannelName}\n\nLingue supportate:\n${list}`
       )
       .setTimestamp();
     return i.reply({ embeds: [emb], ephemeral: true });
