@@ -10,6 +10,6 @@
   "dependencies": {
     "discord.js": "^14.15.0",
     "dotenv": "^16.4.5",
-    "google-translate-api-x": "^9.1.0"
+   "google-translate-api-x": "^6.2.1"
   }
 }
