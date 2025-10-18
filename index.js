@@ -1,5 +1,5 @@
 // ================================
-// 🌍  Bot Traduttore Multicanale
+// 🌍  Bot Traduttore Multicanale (senza librerie di traduzione esterne)
 // ================================
 
 import dotenv from "dotenv";
@@ -51,22 +51,23 @@ client.once("ready", () => {
 });
 
 // ================================
-// 🔧  Funzione di traduzione senza pacchetto esterno
+// 🔧  Funzione di traduzione - chiama direttamente l’API Google Translate
 // ================================
 async function translateText(text, { from = "auto", to = "en" }) {
   try {
-    // endpoint JSON pubblico del translate di Google
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(
       text
     )}`;
-
     const res = await fetch(url);
     const data = await res.json();
-    // estrai il testo tradotto dal JSON
-    const translated = data?.[0]?.map((el) => el[0]).join("") || null;
+    const translated =
+      Array.isArray(data) && Array.isArray(data[0])
+        ? data[0].map((el) => el[0]).join("")
+        : null;
+    if (!translated) throw new Error("Risposta vuota dall'API");
     return translated;
   } catch (err) {
-    console.error("❌ Errore API di traduzione (fetch):", err.message);
+    console.error(`❌ Errore API di traduzione: ${err.message}`);
     return null;
   }
 }
