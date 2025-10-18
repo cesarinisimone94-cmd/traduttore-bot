@@ -98,24 +98,26 @@ client.once("clientready", async () => {
 });
 
 // ----------------------
-// Gestione messaggi (versione 100% no‑duplicati)
+// Gestione messaggi — versione definitiva anti‑duplicati 2025‑10‑18
 // ----------------------
 client.on("messageCreate", async (msg) => {
   try {
-    // 🚫 Blocchi di sicurezza anti‑loop e messaggi non testuali
+    // 🧱 BLOCCO ANTI‑LOOP
     if (!msg.guild) return;
-    if (msg.author.bot) return;
+    // scarta qualsiasi messaggio del bot in modo certo
+    if (msg.author?.id === client.user.id) return;
+    if (msg.author?.bot) return;
     if (msg.webhookId) return;
-    if (msg.author.id === client.user.id) return;
 
-    // Se il messaggio NON ha testo e contiene embed, ignoralo
+    // se è un messaggio senza testo ma con embed → ignoralo
     if (!msg.content && msg.embeds.length > 0) return;
 
-    // Se nel messaggio compare la marcatura del bot, ignoralo
-    const joined = `${msg.content || ""} ${
+    // blocca eventuali testi con tag T‑BOT
+    const textJoined = `${msg.content || ""} ${
       msg.embeds[0]?.description || ""
     } ${msg.embeds[0]?.footer?.text || ""}`.toLowerCase();
-    if (joined.includes("|t-bot|")) return;
+
+    if (textJoined.includes("|t-bot|")) return;
 
     const content = msg.content?.trim();
     if (!content) return;
@@ -127,40 +129,39 @@ client.on("messageCreate", async (msg) => {
     );
     const src = langs[cname];
 
-    // ✳️ Caso 1 – Messaggio dal canale GLOBALE
+    // 🌍 1️⃣ Messaggio dal canale GLOBALE
     if (cname === globalName.toLowerCase()) {
-      for (const [destName, destInfo] of Object.entries(langs)) {
+      console.log(`[Global ➜ traduzione] ${msg.author.username}`);
+      for (const [destName, dest] of Object.entries(langs)) {
         const destCh = guild.channels.cache.find(
           (c) => c.name.toLowerCase() === destName
         );
         if (!destCh) continue;
-        const t = await translateText(content, "auto", destInfo.code);
+        const t = await translateText(content, "auto", dest.code);
         if (!t) continue;
 
         const emb = new EmbedBuilder()
-          .setColor(destInfo.color)
+          .setColor(dest.color)
           .setAuthor({
             name: msg.author.username,
             iconURL: msg.author.displayAvatarURL(),
           })
           .setDescription(`💬 ${t}`)
           .setFooter({
-            text: `🌍 Da Globale → ${destInfo.flag} ${destInfo.code.toUpperCase()} |T-BOT|`,
+            text: `🌍 Da Globale → ${dest.flag} ${dest.code.toUpperCase()} |T-BOT|`,
           });
         await destCh.send({ embeds: [emb] });
       }
       return;
     }
 
-    // ✳️ Caso 2 – Messaggio da un canale linguistico
-    if (!src) return;
+    // 🗣️ 2️⃣ Messaggio da canale lingua
+    if (!src) return; // canale non mappato
+    if (cooldown(msg)) return;
 
-    const skip = cooldown(msg);
-    if (skip) return;
-
-    // Pubblica messaggio originale nel GLOBALE
+    // Copia nel canale globale solo come messaggio originale
     if (globalCh) {
-      const emb = new EmbedBuilder()
+      const embOrig = new EmbedBuilder()
         .setColor(src.color)
         .setAuthor({
           name: `${src.flag} [${src.code.toUpperCase()}] ${msg.author.username}`,
@@ -168,12 +169,12 @@ client.on("messageCreate", async (msg) => {
         })
         .setDescription(`💬 ${content}`)
         .setFooter({
-          text: `🕒 ${now()} | ${src.flag} Messaggio originale |T-BOT|`,
+          text: `🕒 ${now()} | ${src.flag} Originale da ${src.name} |T-BOT|`,
         });
-      await globalCh.send({ embeds: [emb] });
+      await globalCh.send({ embeds: [embOrig] });
     }
 
-    // Traduzioni per gli altri canali
+    // Ora traduzioni negli ALTRI canali lingua
     for (const [destName, dest] of Object.entries(langs)) {
       if (destName === cname) continue;
       const destCh = guild.channels.cache.find(
@@ -182,7 +183,6 @@ client.on("messageCreate", async (msg) => {
       if (!destCh) continue;
       const t = await translateText(content, src.code, dest.code);
       if (!t) continue;
-
       const emb = new EmbedBuilder()
         .setColor(dest.color)
         .setAuthor({
