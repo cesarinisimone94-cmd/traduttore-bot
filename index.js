@@ -4,7 +4,8 @@
 
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder } from "discord.js";
-import googleTranslate from "@vitalets/google-translate-api";
+// ✅ Import corretto per le versioni recenti (v11+)
+import googleTranslateApi from "@vitalets/google-translate-api";
 import express from "express";
 
 // ================================
@@ -16,7 +17,6 @@ app.get("/", (req, res) => {
   res.send("✅ Traduttore Bot attivo e in ascolto!");
 });
 
-// Usa la porta assegnata da Render (default 10000)
 const port = process.env.PORT || 10000;
 
 app.listen(port, "0.0.0.0", () => {
@@ -54,16 +54,26 @@ client.once("ready", () => {
 });
 
 // ================================
+// 🔧 funzione di traduzione compatibile
+// ================================
+async function translateText(text, options) {
+  try {
+    const res = await googleTranslateApi(text, options);
+    return res.text;
+  } catch (error) {
+    console.error("Errore API di traduzione:", error.message);
+    return null;
+  }
+}
+
+// ================================
 // 🗣️  Gestione dei messaggi
 // ================================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
-
-  // 🛑 Evita doppie elaborazioni dovute a cache interna o doppie istanze
   if (message.partial) return;
   if (!message.guild) return;
 
-  // Se il messaggio è già un embed di traduzione, ignora
   if (
     message.embeds.length > 0 &&
     message.embeds[0].footer?.text?.includes("Tradotto")
@@ -82,54 +92,11 @@ client.on("messageCreate", async (message) => {
       );
       if (!targetChannel) continue;
 
-      try {
-        // ✅ Usa la funzione translate (v9.2.0)
-        const result = await translate(text, { to: targetInfo.code });
-        const tradotto = result.text ?? "⚠️ Nessuna traduzione trovata.";
-
-        const embed = new EmbedBuilder()
-          .setColor(targetInfo.color)
-          .setAuthor({
-            name: message.author.username,
-            iconURL: message.author.displayAvatarURL(),
-          })
-          .setDescription(`💬 ${tradotto}`)
-          .setFooter({
-            text: `Tradotto da 🌍 (globale) → ${targetInfo.flag} ${targetInfo.code.toUpperCase()}`,
-          });
-
-        await targetChannel.send({ embeds: [embed] });
-      } catch (err) {
-        console.error(
-          `❌ Errore traduzione per ${targetInfo.code}:`,
-          err.message
-        );
+      const tradotto = await translateText(text, { to: targetInfo.code });
+      if (!tradotto) {
+        console.error(`❌ Errore traduzione per ${targetInfo.code}`);
+        continue;
       }
-    }
-    return;
-  }
-
-  // 🔹 Caso 2: messaggio in un canale di lingua specifica
-  const sourceInfo = channelLanguages[channelName];
-  if (!sourceInfo) return;
-
-  for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
-    // salta stesso canale o stessa lingua
-    if (targetName === channelName || targetInfo.code === sourceInfo.code)
-      continue;
-
-    const targetChannel = message.guild.channels.cache.find(
-      (ch) => ch.name.toLowerCase() === targetName
-    );
-    if (!targetChannel) continue;
-
-    try {
-      // ✅ Traduce dalla lingua sorgente a ogni altra
-      const result = await translate(text, {
-        from: sourceInfo.code,
-        to: targetInfo.code,
-      });
-      const tradotto = result.text ?? "⚠️ Nessuna traduzione trovata.";
 
       const embed = new EmbedBuilder()
         .setColor(targetInfo.color)
@@ -139,16 +106,48 @@ client.on("messageCreate", async (message) => {
         })
         .setDescription(`💬 ${tradotto}`)
         .setFooter({
-          text: `Tradotto da ${sourceInfo.flag} ${sourceInfo.code.toUpperCase()} → ${targetInfo.flag} ${targetInfo.code.toUpperCase()}`,
+          text: `Tradotto da 🌍 (globale) → ${targetInfo.flag} ${targetInfo.code.toUpperCase()}`,
         });
 
       await targetChannel.send({ embeds: [embed] });
-    } catch (err) {
-      console.error(
-        `❌ Errore traduzione ${sourceInfo.code}→${targetInfo.code}:`,
-        err.message
-      );
     }
+    return;
+  }
+
+  // 🔹 Caso 2: messaggio in un canale di lingua specifica
+  const sourceInfo = channelLanguages[channelName];
+  if (!sourceInfo) return;
+
+  for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
+    if (targetName === channelName || targetInfo.code === sourceInfo.code)
+      continue;
+
+    const targetChannel = message.guild.channels.cache.find(
+      (ch) => ch.name.toLowerCase() === targetName
+    );
+    if (!targetChannel) continue;
+
+    const tradotto = await translateText(text, {
+      from: sourceInfo.code,
+      to: targetInfo.code,
+    });
+    if (!tradotto) {
+      console.error(`❌ Errore traduzione ${sourceInfo.code}→${targetInfo.code}`);
+      continue;
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(targetInfo.color)
+      .setAuthor({
+        name: message.author.username,
+        iconURL: message.author.displayAvatarURL(),
+      })
+      .setDescription(`💬 ${tradotto}`)
+      .setFooter({
+        text: `Tradotto da ${sourceInfo.flag} ${sourceInfo.code.toUpperCase()} → ${targetInfo.flag} ${targetInfo.code.toUpperCase()}`,
+      });
+
+    await targetChannel.send({ embeds: [embed] });
   }
 
   // 🔹 Invia il testo originale nel canale globale (senza traduzione)
