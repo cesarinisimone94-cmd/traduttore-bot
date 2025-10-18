@@ -122,32 +122,41 @@ client.on("messageCreate", async (message) => {
 
     console.log(`📨 ${message.author.username} -> #${channelName}: ${text}`);
 
-    // 🔹 Caso 1 — messaggio nel canale globale
-    if (channelName === globalChannelName) {
-      for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
-        const targetChannel = message.guild.channels.cache.find(
-          (c) => c.name.toLowerCase() === targetName
-        );
-        if (!targetChannel) continue;
+   // 🔹 Caso 1 — messaggio nel canale globale
+if (channelName === globalChannelName) {
+  // Estraiamo la lingua originale se presente nell'embed (es. 🇮🇹 Messaggio originale da ...)
+  const flagMatch = message.embeds?.[0]?.footer?.text?.match(/([🇦-🏴])/u);
+  const originalLang = flagMatch
+    ? Object.values(channelLanguages).find((v) => v.flag === flagMatch[1])
+    : null;
 
-        const tradotto = await translateText(text, "auto", targetInfo.code);
-        if (!tradotto) continue;
+  for (const [targetName, targetInfo] of Object.entries(channelLanguages)) {
+    // ❌ Se la lingua target coincide con quella originale, salta (evita doppio invio)
+    if (originalLang && targetInfo.code === originalLang.code) continue;
 
-        const embed = new EmbedBuilder()
-          .setColor(targetInfo.color)
-          .setAuthor({
-            name: message.author.username,
-            iconURL: message.author.displayAvatarURL(),
-          })
-          .setDescription(`💬 ${tradotto}`)
-          .setFooter({
-            text: `Tradotto da 🌍 (globale) → ${targetInfo.flag} ${targetInfo.code.toUpperCase()}`,
-          });
+    const targetChannel = message.guild.channels.cache.find(
+      (c) => c.name.toLowerCase() === targetName
+    );
+    if (!targetChannel) continue;
 
-        await targetChannel.send({ embeds: [embed] });
-      }
-      return;
-    }
+    const tradotto = await translateText(text, "auto", targetInfo.code);
+    if (!tradotto) continue;
+
+    const embed = new EmbedBuilder()
+      .setColor(targetInfo.color)
+      .setAuthor({
+        name: message.author.username,
+        iconURL: message.author.displayAvatarURL(),
+      })
+      .setDescription(`💬 ${tradotto}`)
+      .setFooter({
+        text: `Tradotto da 🌍 (globale) → ${targetInfo.flag} ${targetInfo.code.toUpperCase()}`,
+      });
+
+    await targetChannel.send({ embeds: [embed] });
+  }
+  return;
+}
 
     // 🔹 Caso 2 — messaggio in canale lingua specifica
     if (!sourceInfo) return;
