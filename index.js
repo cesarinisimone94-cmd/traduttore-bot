@@ -86,7 +86,7 @@ function cooldown(msg) {
 // ----------------------
 // ON READY
 // ----------------------
-client.once("ready", async () => {
+client.once("clientready", async () => {
   console.log(`${c.green}${tag()} ✅ Bot online come ${client.user.tag}${c.reset}`);
   const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), {
@@ -251,3 +251,7 @@ client.on("interactionCreate", async (i) => {
     return i.reply({ embeds: [emb], ephemeral: true });
   }
 });
+// ----------------------
+// LOGIN BOT
+// ----------------------
+client.login(process.env.DISCORD_TOKEN);
