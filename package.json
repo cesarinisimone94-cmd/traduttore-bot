@@ -1,14 +1,17 @@
 {
-  "name": "traduttore-bot",
+  "name": "state-translator",
   "version": "1.0.0",
-  "type": "module",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.15.0",
-    "dotenv": "^16.4.0",
-    "express": "^4.19.0"
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.3.1",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2",
+    "pdf-lib": "^1.17.1",
+    "tesseract.js": "^5.0.2"
   }
 }
