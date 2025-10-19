@@ -1,17 +1,26 @@
 // ================================
-// 🌍 Traduttore Chat State — FIX finale no‑duplicazioni + Anti‑duplicati Gateway
+// 🌍 Traduttore Chat State — Messaggi + PDF multi‑lingua con log interni persistenti
 // ================================
 
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } from "discord.js";
 import express from "express";
+import fetch from "node-fetch";
+import fs from "fs";
+import Tesseract from "tesseract.js";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 dotenv.config();
 
 // ----------------------
 // LOG funzioni d’aiuto
 // ----------------------
-const c = { reset: "\x1b[0m", green: "\x1b[32m", red: "\x1b[31m" };
+const c = {
+  reset: "\x1b[0m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  yellow: "\x1b[33m",
+};
 function now() {
   const d = new Date();
   return d.toLocaleString("it-IT", { hour12: false });
@@ -20,13 +29,24 @@ function tag() {
   return `[${now()}]`;
 }
 
+// 🔐 Logger persistente
+const LOG_DIR = "./logs";
+const LOG_FILE = `${LOG_DIR}/translator.log`;
+
+function logLine(type, msg) {
+  if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
+  const line = `${tag()} ${type} ${msg}\n`;
+  fs.appendFileSync(LOG_FILE, line);
+  console.log(line.trim());
+}
+
 // ----------------------
 // Server keep‑alive
 // ----------------------
 const app = express();
-app.get("/", (_, res) => res.send("✅ Traduttore attivo"));
+app.get("/", (_, res) => res.send("✅ Traduttore attivo + PDF Premium + Log persistenti"));
 app.listen(process.env.PORT || 10000, () =>
-  console.log(`${c.green}${tag()} 🌐 Server attivo${c.reset}`)
+  logLine("INFO", "🌐 Server attivo su Render")
 );
 
 // ----------------------
@@ -37,7 +57,7 @@ const client = new Client({
 });
 
 // ----------------------
-// Map canali — aggiornati per il nuovo server
+// Map canali lingua
 // ----------------------
 const langs = {
   "state-chat-ita": { code: "it", flag: "🇮🇹", name: "Italiano", color: 0x3498db },
@@ -91,7 +111,7 @@ function cooldown(msg) {
 // ON READY
 // ----------------------
 client.once("clientready", async () => {
-  console.log(`${c.green}${tag()} ✅ Bot online come ${client.user.tag}${c.reset}`);
+  logLine("OK", `✅ Bot online come ${client.user.tag}`);
   const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), {
     body: [
@@ -102,11 +122,11 @@ client.once("clientready", async () => {
 });
 
 // ================================
-// Gestione messaggi — FIX definitivo anti-doppioni + Logger diagnostico
+// Gestione messaggi — PDF Premium + Log persistente
 // ================================
 const sentMessages = new Set();
-const processedIds = new Map(); // ID messaggi già processati (TTL 5 min)
-const PROCESSED_TTL = 5 * 60 * 1000; // 5 minuti
+const processedIds = new Map();
+const PROCESSED_TTL = 5 * 60 * 1000;
 
 function pruneProcessed() {
   const nowT = Date.now();
@@ -116,23 +136,103 @@ function pruneProcessed() {
 }
 setInterval(pruneProcessed, 60 * 1000);
 
+// ----------------------
+// Elaborazione PDF
+// ----------------------
+async function processPDF(pdfUrl, src, guild, author) {
+  logLine("INFO", `🟡 PDF caricato da ${author.username} (${src.name})`);
+  const res = await fetch(pdfUrl);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const pdfDoc = await PDFDocument.load(buffer);
+  const pages = pdfDoc.getPages();
+
+  let extractedText = "";
+  try {
+    extractedText = pages.map((p) => p.getTextContent?.() || "").join("\n");
+  } catch {
+    extractedText = "";
+  }
+
+  if (!extractedText || extractedText.length < 10) {
+    logLine("INFO", "⚠️ Nessun testo estratto, eseguo OCR...");
+    const ocrRes = await Tesseract.recognize(buffer, src.code);
+    extractedText = ocrRes.data.text || "";
+  }
+
+  if (!extractedText.trim()) {
+    logLine("ERROR", `❌ Nessun testo rilevato nel PDF di ${author.username}`);
+    return null;
+  }
+
+  const destLangs = Object.entries(langs).filter(([k]) => k !== `state-chat-${src.code}`);
+  let count = 0;
+
+  for (const [destName, dest] of destLangs) {
+    count++;
+    const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
+    if (!destCh) continue;
+
+    const translated = await translateText(extractedText.slice(0, 4000), src.code, dest.code);
+    const outDoc = await PDFDocument.create();
+    const page = outDoc.addPage([595, 842]);
+    const font = await outDoc.embedFont(StandardFonts.Helvetica);
+    page.drawText(translated || "(testo non tradotto)", {
+      x: 50,
+      y: 780,
+      size: 12,
+      font,
+      color: rgb(0, 0, 0),
+      lineHeight: 14,
+      maxWidth: 495,
+    });
+
+    const outBytes = await outDoc.save();
+    const filename = `PDF_Tradotto_${dest.code}_${Date.now()}.pdf`;
+    fs.writeFileSync(filename, outBytes);
+
+    await destCh.send({
+      content: `📄 Traduzione automatica PDF da ${src.flag} **${src.name}** → ${dest.flag} **${dest.name}**\n👤 Caricato da ${author}`,
+      files: [filename],
+    });
+
+    fs.unlinkSync(filename);
+    logLine("OK", `⚙️ Traduzione PDF → ${dest.name} completata (${count}/${destLangs.length})`);
+  }
+
+  logLine("OK", `✅ Tutte le traduzioni PDF completate per ${author.username}`);
+  return true;
+}
+
+// ----------------------
+// Messaggi → Gestione
+// ----------------------
 client.on("messageCreate", async (msg) => {
   try {
     if (!msg.guild) return;
-    if (sentMessages.has(msg.id)) return;
-    if (msg.author?.id === client.user.id) return;
     if (msg.author?.bot) return;
-    if (msg.webhookId) return;
 
-    if (processedIds.has(msg.id)) {
-      console.log(`${c.red}${tag()} ⚙️ Ignorato duplicato msg.id=${msg.id}${c.reset}`);
-      return;
+    const guild = msg.guild;
+    const cname = msg.channel.name.toLowerCase();
+    const src = langs[cname];
+
+    // 📄 FILE PDF
+    if (msg.attachments.size > 0) {
+      const pdf = msg.attachments.find((a) => a.name.endsWith(".pdf"));
+      if (pdf && src) {
+        await msg.reply("📘 Traduzione in corso del tuo PDF in tutte le lingue...");
+        await processPDF(pdf.url, src, guild, msg.author);
+        return;
+      }
     }
+
+    // ---- Traduzioni testuali standard (invariato) ----
+    if (sentMessages.has(msg.id)) return;
+    if (msg.webhookId) return;
+    if (processedIds.has(msg.id)) return;
     processedIds.set(msg.id, Date.now());
     pruneProcessed();
 
     if (!msg.content && msg.embeds.length > 0) return;
-
     const joined = `${msg.content || ""} ${
       msg.embeds[0]?.description || ""
     } ${msg.embeds[0]?.footer?.text || ""}`.toLowerCase();
@@ -141,10 +241,7 @@ client.on("messageCreate", async (msg) => {
     const content = msg.content?.trim();
     if (!content) return;
 
-    const guild = msg.guild;
-    const cname = msg.channel.name.toLowerCase();
     const globalCh = guild.channels.cache.find((c) => c.name.toLowerCase() === globalName);
-    const src = langs[cname];
 
     // 🌍 Messaggio dal globale
     if (cname === globalName.toLowerCase()) {
@@ -167,7 +264,7 @@ client.on("messageCreate", async (msg) => {
       return;
     }
 
-    // 🗣️ Messaggi da canali lingua
+    // Messaggi da canali lingua
     if (!src) return;
     if (cooldown(msg)) return;
 
@@ -182,7 +279,6 @@ client.on("messageCreate", async (msg) => {
         .setFooter({
           text: `🕒 ${now()} | ${src.flag} Originale ${src.name} |T-BOT|`,
         });
-
       const sent = await globalCh.send({ embeds: [emb] });
       sentMessages.add(sent.id);
       setTimeout(() => sentMessages.delete(sent.id), 60000);
@@ -209,12 +305,12 @@ client.on("messageCreate", async (msg) => {
       setTimeout(() => sentMessages.delete(sent.id), 60000);
     }
   } catch (err) {
-    console.error(`${c.red}${tag()} 💥 Errore:${c.reset}`, err);
+    logLine("ERROR", `💥 ${err}`);
   }
 });
 
 // ----------------------
-// Slash command handler
+// Slash Command handler
 // ----------------------
 client.on("interactionCreate", async (i) => {
   if (!i.isChatInputCommand()) return;
@@ -230,7 +326,7 @@ client.on("interactionCreate", async (i) => {
       .join("\n");
     const emb = new EmbedBuilder()
       .setColor(0x00aaff)
-      .setTitle("📊 Traduttore attivo")
+      .setTitle("📊 Traduttore attivo (Messaggi + PDF + log persistenti)")
       .setDescription(`Globale: #${globalName}\n\n${list}`)
       .setTimestamp();
     return i.reply({ embeds: [emb], ephemeral: true });
