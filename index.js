@@ -1,5 +1,5 @@
 // ================================
-// 🌍 Traduttore Chat Alliance — FIX finale no‑duplicazioni + Anti‑duplicati Gateway
+// 🌍 Traduttore Chat State — FIX finale no‑duplicazioni + Anti‑duplicati Gateway
 // ================================
 
 import dotenv from "dotenv";
@@ -36,17 +36,21 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
-// Map canali
+// ----------------------
+// Map canali — aggiornati per il nuovo server
+// ----------------------
 const langs = {
-  "alliance-chat-ita": { code: "it", flag: "🇮🇹", name: "Italiano", color: 0x3498db },
-  "alliance-chat-en": { code: "en", flag: "🇬🇧", name: "Inglese", color: 0x2ecc71 },
-  "alliance-chat-es": { code: "es", flag: "🇪🇸", name: "Spagnolo", color: 0xf1c40f },
-  "alliance-chat-arab": { code: "ar", flag: "🇸🇦", name: "Arabo", color: 0x27ae60 },
-  "alliance-chat-fr": { code: "fr", flag: "🇫🇷", name: "Francese", color: 0x9b59b6 },
-  "alliance-chat-ger": { code: "de", flag: "🇩🇪", name: "Tedesco", color: 0xe74c3c },
-  "alliance-chat-pol": { code: "pl", flag: "🇵🇱", name: "Polacco", color: 0xe67e22 },
+  "state-chat-ita": { code: "it", flag: "🇮🇹", name: "Italiano", color: 0x3498db },
+  "state-chat-en": { code: "en", flag: "🇬🇧", name: "Inglese", color: 0x2ecc71 },
+  "state-chat-es": { code: "es", flag: "🇪🇸", name: "Spagnolo", color: 0xf1c40f },
+  "state-chat-arab": { code: "ar", flag: "🇸🇦", name: "Arabo", color: 0x27ae60 },
+  "state-chat-fr": { code: "fr", flag: "🇫🇷", name: "Francese", color: 0x9b59b6 },
+  "state-chat-ger": { code: "de", flag: "🇩🇪", name: "Tedesco", color: 0xe74c3c },
+  "state-chat-pol": { code: "pl", flag: "🇵🇱", name: "Polacco", color: 0xe67e22 },
+  "state-chat-rus": { code: "ru", flag: "🇷🇺", name: "Russo", color: 0x7289da },
+  "state-chat-portu": { code: "pt", flag: "🇵🇹", name: "Portoghese", color: 0x1abc9c },
 };
-const globalName = "alliance-chat-globale";
+const globalName = "state-chat-global";
 
 // ----------------------
 // Traduzione Google API
@@ -104,39 +108,31 @@ const sentMessages = new Set();
 const processedIds = new Map(); // ID messaggi già processati (TTL 5 min)
 const PROCESSED_TTL = 5 * 60 * 1000; // 5 minuti
 
-// funzione per pulire la cache
 function pruneProcessed() {
   const nowT = Date.now();
   for (const [id, ts] of processedIds) {
     if (nowT - ts > PROCESSED_TTL) processedIds.delete(id);
   }
 }
-setInterval(pruneProcessed, 60 * 1000); // pulizia ogni 60 s
+setInterval(pruneProcessed, 60 * 1000);
 
 client.on("messageCreate", async (msg) => {
   try {
     if (!msg.guild) return;
-
-    // 🔒 blocco auto‑messaggi
     if (sentMessages.has(msg.id)) return;
     if (msg.author?.id === client.user.id) return;
     if (msg.author?.bot) return;
     if (msg.webhookId) return;
 
-    // ⚡ Anti‑duplicati su ID
     if (processedIds.has(msg.id)) {
       console.log(`${c.red}${tag()} ⚙️ Ignorato duplicato msg.id=${msg.id}${c.reset}`);
       return;
     }
     processedIds.set(msg.id, Date.now());
-
-    // 🧹 ripulisci ogni tanto
     pruneProcessed();
 
-    // Evita embed puri
     if (!msg.content && msg.embeds.length > 0) return;
 
-    // Blocca messaggi del bot
     const joined = `${msg.content || ""} ${
       msg.embeds[0]?.description || ""
     } ${msg.embeds[0]?.footer?.text || ""}`.toLowerCase();
@@ -150,12 +146,11 @@ client.on("messageCreate", async (msg) => {
     const globalCh = guild.channels.cache.find((c) => c.name.toLowerCase() === globalName);
     const src = langs[cname];
 
-    // 🌍 Messaggio dal globale → traduzioni in tutti i canali lingua
+    // 🌍 Messaggio dal globale
     if (cname === globalName.toLowerCase()) {
       for (const [destName, dest] of Object.entries(langs)) {
         const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
         if (!destCh) continue;
-
         const t = await translateText(content, "auto", dest.code);
         if (!t) continue;
 
@@ -176,7 +171,6 @@ client.on("messageCreate", async (msg) => {
     if (!src) return;
     if (cooldown(msg)) return;
 
-    // → invio nel globale
     if (globalCh) {
       const emb = new EmbedBuilder()
         .setColor(src.color)
@@ -194,7 +188,6 @@ client.on("messageCreate", async (msg) => {
       setTimeout(() => sentMessages.delete(sent.id), 60000);
     }
 
-    // → traduzioni negli altri canali lingua
     for (const [destName, dest] of Object.entries(langs)) {
       if (destName === cname) continue;
       const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
@@ -243,6 +236,7 @@ client.on("interactionCreate", async (i) => {
     return i.reply({ embeds: [emb], ephemeral: true });
   }
 });
+
 // ----------------------
 // LOGIN BOT
 // ----------------------
