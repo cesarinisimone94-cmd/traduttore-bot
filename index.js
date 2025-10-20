@@ -7,7 +7,6 @@ import { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } from "discord.j
 import express from "express";
 import fetch from "node-fetch";
 import fs from "fs";
-import Tesseract from "tesseract.js";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 dotenv.config();
@@ -15,12 +14,6 @@ dotenv.config();
 // ----------------------
 // LOG funzioni d’aiuto
 // ----------------------
-const c = {
-  reset: "\x1b[0m",
-  green: "\x1b[32m",
-  red: "\x1b[31m",
-  yellow: "\x1b[33m",
-};
 function now() {
   const d = new Date();
   return d.toLocaleString("it-IT", { hour12: false });
@@ -32,7 +25,6 @@ function tag() {
 // 🔐 Logger persistente
 const LOG_DIR = "./logs";
 const LOG_FILE = `${LOG_DIR}/translator.log`;
-
 function logLine(type, msg) {
   if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
   const line = `${tag()} ${type} ${msg}\n`;
@@ -45,7 +37,7 @@ function logLine(type, msg) {
 // ----------------------
 const app = express();
 app.get("/", (_, res) =>
-  res.send("✅ Traduttore attivo + PDF Premium + Log persistenti")
+  res.send("✅ Traduttore Bot attivo e in ascolto!")
 );
 app.listen(process.env.PORT || 10000, () =>
   logLine("INFO", "🌐 Server attivo su Render")
@@ -63,7 +55,7 @@ const client = new Client({
 });
 
 // ----------------------
-// Map canali lingua
+// Canali lingua
 // ----------------------
 const langs = {
   "state-chat-ita": { code: "it", flag: "🇮🇹", name: "Italiano", color: 0x3498db },
@@ -79,7 +71,7 @@ const langs = {
 const globalName = "state-chat-global";
 
 // ----------------------
-// Traduzione Google API
+// Traduzione via Google
 // ----------------------
 async function translateText(txt, from, to) {
   try {
@@ -116,7 +108,7 @@ function cooldown(msg) {
 // ----------------------
 // ON READY
 // ----------------------
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   logLine("OK", `✅ Bot online come ${client.user.tag}`);
   const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), {
@@ -128,12 +120,11 @@ client.once("ready", async () => {
 });
 
 // ================================
-// Gestione messaggi — PDF Premium + Log persistente
+// Gestione messaggi + PDF + Log
 // ================================
 const sentMessages = new Set();
 const processedIds = new Map();
 const PROCESSED_TTL = 5 * 60 * 1000;
-
 function pruneProcessed() {
   const nowT = Date.now();
   for (const [id, ts] of processedIds) {
@@ -143,50 +134,43 @@ function pruneProcessed() {
 setInterval(pruneProcessed, 60 * 1000);
 
 // ----------------------
-// Elaborazione PDF
+// Elaborazione PDF aggiornata
 // ----------------------
 async function processPDF(pdfUrl, src, guild, author) {
   logLine("INFO", `🟡 PDF caricato da ${author.username} (${src.name})`);
   const res = await fetch(pdfUrl);
   const buffer = Buffer.from(await res.arrayBuffer());
   const pdfDoc = await PDFDocument.load(buffer);
-  const pages = pdfDoc.getPages();
 
+  // 🔹 Nuova gestione testo per evitare blocchi OCR
   let extractedText = "";
   try {
-    extractedText = pages.map((p) => p.getTextContent?.() || "").join("\n");
+    extractedText = pdfDoc.getTitle?.() || "";
   } catch {
     extractedText = "";
   }
 
-  if (!extractedText || extractedText.length < 10) {
-    logLine("INFO", "⚠️ Nessun testo estratto, eseguo OCR...");
-    const ocrRes = await Tesseract.recognize(buffer, src.code);
-    extractedText = ocrRes.data.text || "";
-  }
-
   if (!extractedText.trim()) {
-    logLine("ERROR", `❌ Nessun testo rilevato nel PDF di ${author.username}`);
+    logLine("WARN", `🚫 PDF senza testo estraibile (no OCR per evitare blocchi).`);
+    const notify =
+      `⚠️ Il PDF caricato da **${author.username}** non contiene testo leggibile.\n` +
+      `⏭️ Traduzione saltata per evitare rallentamenti (probabilmente solo immagini).`;
+    const sysCh = guild.systemChannel || guild.channels.cache.find((c) => c.name === globalName);
+    sysCh?.send(notify).catch(() => {});
     return null;
   }
 
   const destLangs = Object.entries(langs).filter(
     ([k]) => k !== `state-chat-${src.code}`
   );
-  let count = 0;
 
+  let count = 0;
   for (const [destName, dest] of destLangs) {
     count++;
-    const destCh = guild.channels.cache.find(
-      (c) => c.name.toLowerCase() === destName
-    );
+    const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
     if (!destCh) continue;
 
-    const translated = await translateText(
-      extractedText.slice(0, 4000),
-      src.code,
-      dest.code
-    );
+    const translated = await translateText(extractedText.slice(0, 4000), src.code, dest.code);
     const outDoc = await PDFDocument.create();
     const page = outDoc.addPage([595, 842]);
     const font = await outDoc.embedFont(StandardFonts.Helvetica);
@@ -205,15 +189,12 @@ async function processPDF(pdfUrl, src, guild, author) {
     fs.writeFileSync(filename, outBytes);
 
     await destCh.send({
-      content: `📄 Traduzione automatica PDF da ${src.flag} **${src.name}** → ${dest.flag} **${dest.name}**\n👤 Caricato da ${author}`,
+      content: `📄 Traduzione PDF da ${src.flag} **${src.name}** → ${dest.flag} **${dest.name}**\n👤 Caricato da ${author}`,
       files: [filename],
     });
 
     fs.unlinkSync(filename);
-    logLine(
-      "OK",
-      `⚙️ Traduzione PDF → ${dest.name} completata (${count}/${destLangs.length})`
-    );
+    logLine("OK", `⚙️ Traduzione PDF → ${dest.name} completata (${count}/${destLangs.length})`);
   }
 
   logLine("OK", `✅ Tutte le traduzioni PDF completate per ${author.username}`);
@@ -221,7 +202,7 @@ async function processPDF(pdfUrl, src, guild, author) {
 }
 
 // ----------------------
-// Messaggi → Gestione
+// Messaggi
 // ----------------------
 client.on("messageCreate", async (msg) => {
   try {
@@ -232,20 +213,18 @@ client.on("messageCreate", async (msg) => {
     const cname = msg.channel.name.toLowerCase();
     const src = langs[cname];
 
-    // 📄 FILE PDF (corretto: gestisce anche i PDF dal canale globale)
+    // 📄 FILE PDF (ora gestito anche nel canale globale)
     if (msg.attachments.size > 0) {
       const pdf = msg.attachments.find((a) => a.name.endsWith(".pdf"));
       if (pdf) {
         const srcLang = src || { code: "auto", flag: "🌍", name: "Globale" };
-        await msg.reply(
-          "📘 Traduzione in corso del tuo PDF in tutte le lingue..."
-        );
+        await msg.reply("📘 Traduzione in corso del tuo PDF in tutte le lingue...");
         await processPDF(pdf.url, srcLang, guild, msg.author);
         return;
       }
     }
 
-    // ---- Traduzioni testuali standard ----
+    // ---- Traduzioni testuali ----
     if (sentMessages.has(msg.id)) return;
     if (msg.webhookId) return;
     if (processedIds.has(msg.id)) return;
@@ -261,30 +240,21 @@ client.on("messageCreate", async (msg) => {
     const content = msg.content?.trim();
     if (!content) return;
 
-    const globalCh = guild.channels.cache.find(
-      (c) => c.name.toLowerCase() === globalName
-    );
+    const globalCh = guild.channels.cache.find((c) => c.name.toLowerCase() === globalName);
 
     // 🌍 Messaggio dal globale
     if (cname === globalName.toLowerCase()) {
       for (const [destName, dest] of Object.entries(langs)) {
-        const destCh = guild.channels.cache.find(
-          (c) => c.name.toLowerCase() === destName
-        );
+        const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
         if (!destCh) continue;
         const t = await translateText(content, "auto", dest.code);
         if (!t) continue;
 
         const emb = new EmbedBuilder()
           .setColor(dest.color)
-          .setAuthor({
-            name: msg.author.username,
-            iconURL: msg.author.displayAvatarURL(),
-          })
+          .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL() })
           .setDescription(`💬 ${t}`)
-          .setFooter({
-            text: `🌍 Da Globale → ${dest.flag} ${dest.code.toUpperCase()} |T-BOT|`,
-          });
+          .setFooter({ text: `🌍 Da Globale → ${dest.flag} ${dest.code.toUpperCase()} |T-BOT|` });
 
         const sent = await destCh.send({ embeds: [emb] });
         sentMessages.add(sent.id);
@@ -315,9 +285,7 @@ client.on("messageCreate", async (msg) => {
 
     for (const [destName, dest] of Object.entries(langs)) {
       if (destName === cname) continue;
-      const destCh = guild.channels.cache.find(
-        (c) => c.name.toLowerCase() === destName
-      );
+      const destCh = guild.channels.cache.find((c) => c.name.toLowerCase() === destName);
       if (!destCh) continue;
 
       const t = await translateText(content, src.code, dest.code);
@@ -325,10 +293,7 @@ client.on("messageCreate", async (msg) => {
 
       const emb = new EmbedBuilder()
         .setColor(dest.color)
-        .setAuthor({
-          name: msg.author.username,
-          iconURL: msg.author.displayAvatarURL(),
-        })
+        .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL() })
         .setDescription(`💬 ${t}`)
         .setFooter({
           text: `Tradotto da ${src.flag} ${src.code.toUpperCase()} → ${dest.flag} ${dest.code.toUpperCase()} |T-BOT|`,
@@ -344,7 +309,7 @@ client.on("messageCreate", async (msg) => {
 });
 
 // ----------------------
-// Slash Command handler
+// Slash Commands
 // ----------------------
 client.on("interactionCreate", async (i) => {
   if (!i.isChatInputCommand()) return;
@@ -368,6 +333,6 @@ client.on("interactionCreate", async (i) => {
 });
 
 // ----------------------
-// LOGIN BOT
+// LOGIN
 // ----------------------
 client.login(process.env.DISCORD_TOKEN);
